@@ -6,11 +6,13 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { Menu, Search, ShoppingCart } from "lucide-react";
 import { useCart } from "@/context/CartContext";
+import { useCompany } from "@/context/CompanyContext";
 
 export default function Header() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { cartCount } = useCart();
+  const company = useCompany();
   const [query, setQuery] = useState(searchParams.get("search") ?? "");
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -45,8 +47,8 @@ export default function Header() {
         <Link href="/" className="flex min-w-0 items-center gap-2" onClick={() => setMobileOpen(false)}>
           <span className="relative block h-11 w-11 flex-none">
             <Image
-              src="/logo.png"
-              alt="Espaço da Informática"
+              src={company.logoPath}
+              alt={company.name}
               width={44}
               height={44}
               className="h-full w-full object-contain"
@@ -54,10 +56,10 @@ export default function Header() {
           </span>
           <span className="hidden min-w-0 leading-tight min-[400px]:block">
             <span className="block truncate text-sm font-black tracking-tight text-slate-900">
-              Espaço da Informática
+              {company.name}
             </span>
             <span className="hidden text-[11px] text-slate-500 sm:block">
-              Notebooks, computadores e assistência
+              {company.tagline}
             </span>
           </span>
         </Link>

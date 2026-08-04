@@ -13,12 +13,13 @@ import {
   Trash2,
 } from "lucide-react";
 import { useCart } from "@/context/CartContext";
+import { useCompany } from "@/context/CompanyContext";
 import { formatPrice, parsePriceToNumber } from "@/lib/format";
-import { SITE_CONFIG } from "@/lib/config";
 
 export default function CartPage() {
   const { items, removeFromCart, updateQuantity, clearCart, cartTotal } =
     useCart();
+  const company = useCompany();
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [sent, setSent] = useState(false);
@@ -35,7 +36,7 @@ export default function CartPage() {
     return encodeURIComponent(intro + lines.join("\n\n") + footer);
   };
 
-  const whatsappUrl = `https://wa.me/${SITE_CONFIG.whatsapp.number}?text=${buildWhatsAppMessage()}`;
+  const whatsappUrl = `https://wa.me/${company.whatsappNumber}?text=${buildWhatsAppMessage()}`;
 
   if (items.length === 0) {
     return (

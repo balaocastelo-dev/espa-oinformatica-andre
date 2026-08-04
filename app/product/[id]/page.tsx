@@ -6,7 +6,7 @@ import { parsePriceToNumber } from "@/lib/format";
 import ProductCard from "@/components/ProductCard";
 import ProductActions from "@/components/ProductActions";
 import ProductGallery from "@/components/ProductGallery";
-import { SITE_CONFIG } from "@/lib/config";
+import { readCompanySettings } from "@/lib/company";
 
 export async function generateMetadata(props: {
   params: Promise<{ id: string }>;
@@ -27,6 +27,7 @@ export default async function ProductPage(props: {
   const product = await getProductBySlug(id);
   if (!product) notFound();
 
+  const company = await readCompanySettings();
   const price = parsePriceToNumber(product.price);
   const related = (await getProductsByCategory(product.category))
     .filter((p) => p.id !== product.id)
@@ -103,7 +104,7 @@ export default async function ProductPage(props: {
           <ProductActions product={product} />
 
           <a
-            href={`https://wa.me/${SITE_CONFIG.whatsapp.number}?text=${encodeURIComponent(
+            href={`https://wa.me/${company.whatsappNumber}?text=${encodeURIComponent(
               `Olá! Tenho interesse no produto: ${product.name} (${product.price})`
             )}`}
             target="_blank"

@@ -1,9 +1,9 @@
 import Link from "next/link";
 import Image from "next/image";
 import { Clock, Instagram, Mail, MapPin, Phone } from "lucide-react";
-import { SITE_CONFIG } from "@/lib/config";
+import type { CompanySettings } from "@/lib/company";
 
-export default function Footer() {
+export default function Footer({ company }: { company: CompanySettings }) {
   return (
     <footer className="border-t border-slate-200 bg-slate-900 text-slate-300">
       <div className="mx-auto grid max-w-6xl gap-8 px-4 py-10 sm:grid-cols-2 lg:grid-cols-4">
@@ -11,21 +11,19 @@ export default function Footer() {
           <div className="flex items-center gap-2">
             <span className="block h-10 w-10">
               <Image
-                src="/logo.png"
-                alt="Espaço da Informática"
+                src={company.logoPath}
+                alt={company.name}
                 width={44}
                 height={44}
                 className="h-full w-full object-contain"
               />
             </span>
             <span className="min-w-0 break-words text-base font-black text-white">
-              Espaço da Informática
+              {company.name}
             </span>
           </div>
           <p className="mt-3 text-sm leading-relaxed text-slate-400">
-            Há mais de 15 anos, referência em notebooks seminovos com
-            procedência, qualidade e garantia de 6 meses. Venda, manutenção,
-            upgrade e suporte técnico em Campinas.
+            {company.footerDescription}
           </p>
         </div>
 
@@ -37,33 +35,33 @@ export default function Footer() {
             <li className="flex items-center gap-2">
               <Phone size={16} className="text-[#E60012]" />
               <a
-                href={`https://wa.me/${SITE_CONFIG.whatsapp.number}`}
+                href={`https://wa.me/${company.whatsappNumber}`}
                 target="_blank"
                 rel="noreferrer"
                 className="break-words hover:text-white"
               >
-                {SITE_CONFIG.phone.display}
+                {company.phoneDisplay}
               </a>
             </li>
             <li className="flex items-center gap-2">
               <Mail size={16} className="text-[#E60012]" />
-              <a href={`mailto:${SITE_CONFIG.email}`} className="hover:text-white">
-                {SITE_CONFIG.email}
+              <a href={`mailto:${company.email}`} className="break-words hover:text-white">
+                {company.email}
               </a>
             </li>
             <li className="flex items-start gap-2">
               <MapPin size={16} className="mt-0.5 shrink-0 text-[#E60012]" />
-                <span className="break-words">{SITE_CONFIG.address}</span>
+                <span className="break-words">{company.address}</span>
             </li>
             <li className="flex items-center gap-2">
               <Instagram size={16} className="text-[#E60012]" />
               <a
-                href={SITE_CONFIG.social.instagram}
+                href={company.instagramUrl}
                 target="_blank"
                 rel="noreferrer"
                 className="hover:text-white"
               >
-                @espaco.dainformatica
+                {company.instagramHandle}
               </a>
             </li>
           </ul>
@@ -76,11 +74,11 @@ export default function Footer() {
           <ul className="mt-3 space-y-2 text-sm">
             <li className="flex items-center gap-2">
               <Clock size={16} className="text-[#E60012]" />
-              <span>Seg. a Sex. das 09h às 18h</span>
+              <span>{company.weekdayHours}</span>
             </li>
             <li className="flex items-center gap-2">
               <Clock size={16} className="text-[#E60012]" />
-              <span>Sáb. das 09h às 13h</span>
+              <span>{company.saturdayHours}</span>
             </li>
           </ul>
         </div>
@@ -130,7 +128,7 @@ export default function Footer() {
       </div>
 
       <div className="border-t border-slate-800 py-4 text-center text-xs text-slate-500">
-        © {new Date().getFullYear()} Espaço da Informática · Campinas - SP
+        © {new Date().getFullYear()} {company.name} · {company.city} - {company.region}
       </div>
     </footer>
   );

@@ -13,57 +13,28 @@ import {
 import ProductCard from "@/components/ProductCard";
 import { getProductsByCategory, searchProducts } from "@/lib/products";
 import { readCategories } from "@/lib/store";
-import { SITE_CONFIG } from "@/lib/config";
+import { readCompanySettings } from "@/lib/company";
 
 type SearchParams = Promise<{ search?: string; category?: string }>;
 
-export const metadata = {
-  title: "Catálogo | Espaço da Informática",
-};
+export async function generateMetadata() {
+  return { title: "Catálogo" };
+}
 
-const services = [
-  {
-    icon: PackageCheck,
-    title: "Venda",
-    description:
-      "Notebooks seminovos revisados, computadores e acessórios com garantia e procedência.",
-  },
-  {
-    icon: Wrench,
-    title: "Manutenção",
-    description:
-      "Reparo de computadores e notebooks com diagnóstico rápido e transparente.",
-  },
-  {
-    icon: Cpu,
-    title: "Upgrade",
-    description:
-      "Melhoria de desempenho com SSD, memória RAM e otimização geral do sistema.",
-  },
-  {
-    icon: Headphones,
-    title: "Suporte",
-    description:
-      "Auxílio técnico contínuo, presencial ou remoto, para usuários e empresas.",
-  },
-  {
-    icon: MonitorCheck,
-    title: "Atendimento",
-    description:
-      "Atendimento especializado e humano, com suporte em cada etapa.",
-  },
-  {
-    icon: Truck,
-    title: "Entrega",
-    description:
-      "Serviço rápido e seguro de retirada e devolução do seu equipamento.",
-  },
+const serviceIcons = [
+  PackageCheck,
+  Wrench,
+  Cpu,
+  Headphones,
+  MonitorCheck,
+  Truck,
 ];
 
 export default async function Home(props: { searchParams: SearchParams }) {
   const sp = await props.searchParams;
   const search = sp.search?.trim() ?? "";
   const category = sp.category?.trim() ?? "";
+  const company = await readCompanySettings();
 
   let products = search
     ? await searchProducts(search)
@@ -87,56 +58,46 @@ export default async function Home(props: { searchParams: SearchParams }) {
           <div>
             <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-1.5 text-xs font-bold uppercase tracking-widest text-red-300">
               <ShieldCheck size={14} />
-              6 meses de garantia
+              {company.heroBadge}
             </span>
             <h1 className="mt-4 text-3xl font-black leading-tight sm:text-4xl lg:text-5xl">
-              Notebooks seminovos com procedência, qualidade e suporte de
-              verdade.
+              {company.heroTitle}
             </h1>
             <p className="mt-4 max-w-xl text-base leading-relaxed text-slate-300">
-              Há mais de 15 anos a referência em Campinas para notebooks
-              seminovos revisados, computadores, manutenção e upgrades. Compre
-              com segurança e economize.
+              {company.heroDescription}
             </p>
             <div className="mt-6 flex flex-wrap gap-3">
               <a
-                href={`https://wa.me/${SITE_CONFIG.whatsapp.number}?text=${encodeURIComponent(
-                  "Olá! Vim pelo site e quero saber mais sobre os notebooks seminovos."
+                href={`https://wa.me/${company.whatsappNumber}?text=${encodeURIComponent(
+                  company.heroWhatsappMessage
                 )}`}
                 target="_blank"
                 rel="noreferrer"
                 className="balao-cta-pulse inline-flex items-center justify-center gap-2 rounded-full bg-[#25D366] px-6 py-3 text-sm font-bold text-white"
               >
                 <MessageCircle size={18} />
-                Falar no WhatsApp
+                {company.heroWhatsappLabel}
               </a>
               <a
                 href="#catalogo"
                 className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-6 py-3 text-sm font-bold text-slate-900 hover:bg-slate-100"
               >
-                Ver catálogo
+                {company.catalogButtonLabel}
                 <Download size={16} />
               </a>
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3 sm:gap-4">
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur sm:p-5">
-              <div className="text-2xl font-black sm:text-3xl">15+</div>
-              <div className="mt-1 text-sm text-slate-300">anos de experiência</div>
-            </div>
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur sm:p-5">
-              <div className="text-2xl font-black sm:text-3xl">6</div>
-              <div className="mt-1 text-sm text-slate-300">meses de garantia</div>
-            </div>
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur sm:p-5">
-              <div className="text-2xl font-black sm:text-3xl">100%</div>
-              <div className="mt-1 text-sm text-slate-300">equipamentos revisados</div>
-            </div>
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur sm:p-5">
-              <div className="text-2xl font-black sm:text-3xl">-50%</div>
-              <div className="mt-1 text-sm text-slate-300">vs. preço de novo</div>
-            </div>
+            {company.stats.map((stat) => (
+              <div
+                key={stat.label}
+                className="rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur sm:p-5"
+              >
+                <div className="text-2xl font-black sm:text-3xl">{stat.value}</div>
+                <div className="mt-1 text-sm text-slate-300">{stat.label}</div>
+              </div>
+            ))}
           </div>
         </div>
       </section>
@@ -215,17 +176,16 @@ export default async function Home(props: { searchParams: SearchParams }) {
               Nossos serviços
             </span>
             <h2 className="mt-1 text-2xl font-black sm:text-3xl">
-              Soluções completas em informática
+              {company.servicesTitle}
             </h2>
             <p className="mx-auto mt-2 max-w-2xl text-sm text-slate-500">
-              Venda, manutenção, suporte, upgrades e atendimento especializado
-              para deixar seus equipamentos sempre funcionando no máximo.
+              {company.servicesDescription}
             </p>
           </div>
 
           <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {services.map((service) => {
-              const Icon = service.icon;
+            {company.services.map((service, index) => {
+              const Icon = serviceIcons[index] ?? PackageCheck;
               return (
                 <div
                   key={service.title}
@@ -248,22 +208,21 @@ export default async function Home(props: { searchParams: SearchParams }) {
       <section className="mx-auto max-w-6xl px-4 py-12 sm:py-16">
         <div className="rounded-3xl bg-gradient-to-r from-red-700 to-red-950 p-8 text-center text-white sm:p-10 lg:p-12">
           <h2 className="text-2xl font-black sm:text-3xl">
-            Precisa de um notebook ou de um reparo hoje?
+            {company.ctaTitle}
           </h2>
           <p className="mx-auto mt-2 max-w-xl text-sm text-red-100">
-            Consulte disponibilidade, valores e prazos direto com nossa equipe
-            pelo WhatsApp. Atendimento rápido em Campinas e região.
+            {company.ctaDescription}
           </p>
           <a
-            href={`https://wa.me/${SITE_CONFIG.whatsapp.number}?text=${encodeURIComponent(
-              SITE_CONFIG.whatsapp.messageDefault
+            href={`https://wa.me/${company.whatsappNumber}?text=${encodeURIComponent(
+              company.whatsappDefaultMessage
             )}`}
             target="_blank"
             rel="noreferrer"
             className="balao-cta-pulse mt-6 inline-flex items-center justify-center gap-2 rounded-full bg-[#25D366] px-8 py-3.5 text-sm font-bold text-white"
           >
             <MessageCircle size={18} />
-            Chamar no WhatsApp
+            {company.ctaButtonLabel}
           </a>
         </div>
       </section>

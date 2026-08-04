@@ -4,20 +4,25 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import {
   ArrowLeft,
+  Building2,
   ExternalLink,
   FileUp,
   LayoutGrid,
   Package,
   Pencil,
   Plus,
+  Save,
   Search,
   Trash2,
+  Upload,
   X,
 } from "lucide-react";
 import type { Product } from "@/lib/format";
 import type { Category } from "@/lib/store";
+import type { CompanySettings } from "@/lib/company";
 
-type Tab = "products" | "categories";
+type Tab = "products" | "categories" | "company";
+type CompanyTextField = Exclude<keyof CompanySettings, "logoPath" | "stats" | "services">;
 
 type ProductFormState = {
   name: string;
@@ -149,6 +154,7 @@ export default function AdminPage() {
             [
               { key: "products", label: "Produtos", icon: Package },
               { key: "categories", label: "Categorias", icon: LayoutGrid },
+              { key: "company", label: "Empresa", icon: Building2 },
             ] as const
           ).map(({ key, label, icon: Icon }) => (
             <button
@@ -192,13 +198,15 @@ export default function AdminPage() {
             refresh={refresh}
             notify={notify}
           />
-        ) : (
+        ) : tab === "categories" ? (
           <CategoriesPanel
             categories={categories}
             products={products}
             refresh={refresh}
             notify={notify}
           />
+        ) : (
+          <CompanyPanel notify={notify} />
         )}
       </div>
     </div>
@@ -768,6 +776,363 @@ function CategoriesPanel({
         </table>
       </div>
     </div>
+  );
+}
+
+function CompanyPanel({
+  notify,
+}: {
+  notify: (type: "ok" | "err", text: string) => void;
+}) {
+  const [form, setForm] = useState<CompanySettings | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+
+  useEffect(() => {
+    api<CompanySettings>("/api/settings")
+      .then(setForm)
+      .catch((error) => notify("err", (error as Error).message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (logoPreview) URL.revokeObjectURL(logoPreview);
+    };
+  }, [logoPreview]);
+
+  const updateText = (field: CompanyTextField, value: string) => {
+    setForm((previous) => (previous ? { ...previous, [field]: value } : previous));
+  };
+
+  const updateStat = (index: number, field: "value" | "label", value: string) => {
+    setForm((previous) => {
+      if (!previous) return previous;
+      return {
+        ...previous,
+        stats: previous.stats.map((stat, currentIndex) =>
+          currentIndex === index ? { ...stat, [field]: value } : stat
+        ),
+      };
+    });
+  };
+
+  const updateService = (
+    index: number,
+    field: "title" | "description",
+    value: string
+  ) => {
+    setForm((previous) => {
+      if (!previous) return previous;
+      return {
+        ...previous,
+        services: previous.services.map((service, currentIndex) =>
+          currentIndex === index ? { ...service, [field]: value } : service
+        ),
+      };
+    });
+  };
+
+  const handleSave = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!form) return;
+    setSaving(true);
+    try {
+      const saved = await api<CompanySettings>("/api/settings", {
+        method: "PUT",
+        body: JSON.stringify(form),
+      });
+      setForm(saved);
+      notify("ok", "Informações da empresa salvas");
+    } catch (error) {
+      notify("err", (error as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const selectLogo = (file: File | undefined) => {
+    if (!file) return;
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+      notify("err", "Formato inválido. Use PNG, JPG ou WEBP");
+      return;
+    }
+    setLogoFile(file);
+    setLogoPreview(URL.createObjectURL(file));
+  };
+
+  const uploadLogo = async () => {
+    if (!logoFile) return;
+    setUploadingLogo(true);
+    try {
+      const body = new FormData();
+      body.append("logo", logoFile);
+      const response = await fetch("/api/settings/logo", {
+        method: "POST",
+        body,
+      });
+      const data = (await response.json()) as CompanySettings | { error?: string };
+      if (!response.ok) {
+        throw new Error("error" in data ? data.error || "Erro ao enviar o logo" : "Erro ao enviar o logo");
+      }
+      setForm(data as CompanySettings);
+      setLogoFile(null);
+      setLogoPreview(null);
+      notify("ok", "Logo atualizado");
+    } catch (error) {
+      notify("err", (error as Error).message);
+    } finally {
+      setUploadingLogo(false);
+    }
+  };
+
+  const inputClass =
+    "w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-[#E60012] focus:bg-white";
+  const labelClass = "mb-1 block text-xs font-bold uppercase tracking-wide text-slate-500";
+
+  if (loading) {
+    return <div className="py-24 text-center text-slate-500">Carregando configurações...</div>;
+  }
+
+  if (!form) {
+    return <div className="rounded-2xl bg-red-50 p-5 text-sm text-red-700">Não foi possível carregar as configurações.</div>;
+  }
+
+  return (
+    <form onSubmit={handleSave} className="space-y-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-xl font-black">Ajustes da empresa</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Altere a identidade, os contatos e os textos exibidos na loja.
+          </p>
+        </div>
+        <button
+          type="submit"
+          disabled={saving}
+          className="flex min-h-11 items-center justify-center gap-2 rounded-full bg-[#E60012] px-6 py-2.5 text-sm font-bold text-white hover:bg-red-700 disabled:opacity-60"
+        >
+          <Save size={16} />
+          {saving ? "Salvando..." : "Salvar alterações"}
+        </button>
+      </div>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+        <h3 className="text-base font-black">Identidade e contatos</h3>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <div>
+            <label className={labelClass}>Nome da empresa</label>
+            <input value={form.name} onChange={(e) => updateText("name", e.target.value)} className={inputClass} />
+          </div>
+          <div>
+            <label className={labelClass}>Slogan / subtítulo</label>
+            <input value={form.tagline} onChange={(e) => updateText("tagline", e.target.value)} className={inputClass} />
+          </div>
+          <div>
+            <label className={labelClass}>Telefone exibido</label>
+            <input value={form.phoneDisplay} onChange={(e) => updateText("phoneDisplay", e.target.value)} className={inputClass} />
+          </div>
+          <div>
+            <label className={labelClass}>WhatsApp (somente números)</label>
+            <input value={form.whatsappNumber} onChange={(e) => updateText("whatsappNumber", e.target.value)} className={inputClass} />
+          </div>
+          <div>
+            <label className={labelClass}>E-mail</label>
+            <input type="email" value={form.email} onChange={(e) => updateText("email", e.target.value)} className={inputClass} />
+          </div>
+          <div>
+            <label className={labelClass}>Instagram</label>
+            <input value={form.instagramHandle} onChange={(e) => updateText("instagramHandle", e.target.value)} className={inputClass} />
+          </div>
+          <div className="sm:col-span-2">
+            <label className={labelClass}>Link do Instagram</label>
+            <input type="url" value={form.instagramUrl} onChange={(e) => updateText("instagramUrl", e.target.value)} className={inputClass} />
+          </div>
+          <div className="sm:col-span-2">
+            <label className={labelClass}>Endereço</label>
+            <input value={form.address} onChange={(e) => updateText("address", e.target.value)} className={inputClass} />
+          </div>
+          <div>
+            <label className={labelClass}>Cidade</label>
+            <input value={form.city} onChange={(e) => updateText("city", e.target.value)} className={inputClass} />
+          </div>
+          <div>
+            <label className={labelClass}>Estado</label>
+            <input value={form.region} onChange={(e) => updateText("region", e.target.value)} className={inputClass} />
+          </div>
+          <div>
+            <label className={labelClass}>CEP</label>
+            <input value={form.postalCode} onChange={(e) => updateText("postalCode", e.target.value)} className={inputClass} />
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+        <h3 className="text-base font-black">Logo da empresa</h3>
+        <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-center">
+          <div className="flex h-28 w-28 shrink-0 items-center justify-center rounded-2xl bg-slate-100 p-3">
+            <img
+              src={logoPreview || form.logoPath}
+              alt={`Logo de ${form.name}`}
+              className="max-h-full max-w-full object-contain"
+            />
+          </div>
+          <div className="min-w-0 space-y-2">
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              onChange={(event) => selectLogo(event.target.files?.[0])}
+              className="block w-full text-sm text-slate-500 file:mr-3 file:rounded-full file:border-0 file:bg-slate-900 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-slate-700"
+            />
+            <p className="text-xs text-slate-500">PNG, JPG ou WEBP, até 5 MB. O logo será usado no Header e Footer.</p>
+            <button
+              type="button"
+              onClick={uploadLogo}
+              disabled={!logoFile || uploadingLogo}
+              className="flex min-h-10 items-center gap-2 rounded-full border border-slate-300 px-4 py-2 text-sm font-bold text-slate-700 hover:border-[#E60012] hover:text-[#E60012] disabled:opacity-50"
+            >
+              <Upload size={15} />
+              {uploadingLogo ? "Enviando..." : "Aplicar novo logo"}
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+        <h3 className="text-base font-black">Textos principais da página</h3>
+        <div className="mt-4 grid gap-4">
+          <div>
+            <label className={labelClass}>Selo do destaque</label>
+            <input value={form.heroBadge} onChange={(e) => updateText("heroBadge", e.target.value)} className={inputClass} />
+          </div>
+          <div>
+            <label className={labelClass}>Título principal</label>
+            <textarea rows={2} value={form.heroTitle} onChange={(e) => updateText("heroTitle", e.target.value)} className={inputClass} />
+          </div>
+          <div>
+            <label className={labelClass}>Descrição principal</label>
+            <textarea rows={3} value={form.heroDescription} onChange={(e) => updateText("heroDescription", e.target.value)} className={inputClass} />
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className={labelClass}>Texto do botão WhatsApp</label>
+              <input value={form.heroWhatsappLabel} onChange={(e) => updateText("heroWhatsappLabel", e.target.value)} className={inputClass} />
+            </div>
+            <div>
+              <label className={labelClass}>Texto do botão catálogo</label>
+              <input value={form.catalogButtonLabel} onChange={(e) => updateText("catalogButtonLabel", e.target.value)} className={inputClass} />
+            </div>
+          </div>
+          <div>
+            <label className={labelClass}>Mensagem do botão principal do WhatsApp</label>
+            <textarea rows={2} value={form.heroWhatsappMessage} onChange={(e) => updateText("heroWhatsappMessage", e.target.value)} className={inputClass} />
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+        <h3 className="text-base font-black">Estatísticas do destaque</h3>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          {form.stats.map((stat, index) => (
+            <div key={index} className="grid grid-cols-[96px_1fr] gap-2">
+              <input
+                value={stat.value}
+                onChange={(e) => updateStat(index, "value", e.target.value)}
+                className={inputClass}
+                placeholder="15+"
+                aria-label={`Valor da estatística ${index + 1}`}
+              />
+              <input
+                value={stat.label}
+                onChange={(e) => updateStat(index, "label", e.target.value)}
+                className={inputClass}
+                placeholder="Descrição"
+                aria-label={`Descrição da estatística ${index + 1}`}
+              />
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+        <h3 className="text-base font-black">Serviços</h3>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <label className={labelClass}>Título da seção</label>
+            <input value={form.servicesTitle} onChange={(e) => updateText("servicesTitle", e.target.value)} className={inputClass} />
+          </div>
+          <div className="sm:col-span-2">
+            <label className={labelClass}>Descrição da seção</label>
+            <textarea rows={2} value={form.servicesDescription} onChange={(e) => updateText("servicesDescription", e.target.value)} className={inputClass} />
+          </div>
+          {form.services.map((service, index) => (
+            <div key={index} className="space-y-2 rounded-xl bg-slate-50 p-3">
+              <input
+                value={service.title}
+                onChange={(e) => updateService(index, "title", e.target.value)}
+                className={inputClass}
+                placeholder="Título do serviço"
+              />
+              <textarea
+                rows={3}
+                value={service.description}
+                onChange={(e) => updateService(index, "description", e.target.value)}
+                className={inputClass}
+                placeholder="Descrição do serviço"
+              />
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+        <h3 className="text-base font-black">Rodapé, atendimento e chamada final</h3>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <label className={labelClass}>Título da chamada final</label>
+            <input value={form.ctaTitle} onChange={(e) => updateText("ctaTitle", e.target.value)} className={inputClass} />
+          </div>
+          <div className="sm:col-span-2">
+            <label className={labelClass}>Descrição da chamada final</label>
+            <textarea rows={2} value={form.ctaDescription} onChange={(e) => updateText("ctaDescription", e.target.value)} className={inputClass} />
+          </div>
+          <div>
+            <label className={labelClass}>Texto do botão final</label>
+            <input value={form.ctaButtonLabel} onChange={(e) => updateText("ctaButtonLabel", e.target.value)} className={inputClass} />
+          </div>
+          <div>
+            <label className={labelClass}>Mensagem padrão do WhatsApp</label>
+            <input value={form.whatsappDefaultMessage} onChange={(e) => updateText("whatsappDefaultMessage", e.target.value)} className={inputClass} />
+          </div>
+          <div className="sm:col-span-2">
+            <label className={labelClass}>Descrição do rodapé</label>
+            <textarea rows={3} value={form.footerDescription} onChange={(e) => updateText("footerDescription", e.target.value)} className={inputClass} />
+          </div>
+          <div>
+            <label className={labelClass}>Horário de segunda a sexta</label>
+            <input value={form.weekdayHours} onChange={(e) => updateText("weekdayHours", e.target.value)} className={inputClass} />
+          </div>
+          <div>
+            <label className={labelClass}>Horário de sábado</label>
+            <input value={form.saturdayHours} onChange={(e) => updateText("saturdayHours", e.target.value)} className={inputClass} />
+          </div>
+        </div>
+      </section>
+
+      <div className="flex justify-end">
+        <button
+          type="submit"
+          disabled={saving}
+          className="flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-[#E60012] px-6 py-2.5 text-sm font-bold text-white hover:bg-red-700 disabled:opacity-60 sm:w-auto"
+        >
+          <Save size={16} />
+          {saving ? "Salvando..." : "Salvar alterações"}
+        </button>
+      </div>
+    </form>
   );
 }
 

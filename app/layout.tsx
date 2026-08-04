@@ -2,40 +2,49 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import "./globals.css";
 import { CartProvider } from "@/context/CartContext";
+import CompanyProvider from "@/context/CompanyContext";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
-import { SITE_CONFIG } from "@/lib/config";
+import { readCompanySettings } from "@/lib/company";
 
-export const metadata: Metadata = {
-  title: {
-    default: "Espaço da Informática | Notebooks Seminovos e Assistência Técnica em Campinas",
-    template: "%s | Espaço da Informática",
-  },
-  description:
-    "Há mais de 15 anos, referência em notebooks seminovos com procedência, qualidade e garantia de 6 meses. Venda, manutenção, upgrade e suporte técnico em Campinas - SP.",
-  keywords: [
-    "notebooks seminovos campinas",
-    "assistência técnica informática campinas",
-    "manutenção de notebook campinas",
-    "upgrade ssd campinas",
-    "computadores campinas",
-    "espaço da informática",
-  ],
-};
+export const dynamic = "force-dynamic";
 
-export default function RootLayout({
+export async function generateMetadata(): Promise<Metadata> {
+  const company = await readCompanySettings();
+  return {
+    title: {
+      default: `${company.name} | Notebooks Seminovos e Assistência Técnica em ${company.city}`,
+      template: `%s | ${company.name}`,
+    },
+    description: company.heroDescription,
+    keywords: [
+      "notebooks seminovos",
+      "assistência técnica",
+      "manutenção de notebook",
+      "upgrade ssd",
+      "computadores",
+      company.name,
+    ],
+  };
+}
+
+export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
+  const company = await readCompanySettings();
+
   return (
     <html lang="pt-BR">
       <body className="flex min-h-screen flex-col bg-slate-50 text-slate-900 antialiased">
-        <CartProvider>
-          <Suspense fallback={null}>
-            <Header />
-          </Suspense>
-          <main className="flex-1">{children}</main>
-          <Footer />
-        </CartProvider>
+        <CompanyProvider settings={company}>
+          <CartProvider>
+            <Suspense fallback={null}>
+              <Header />
+            </Suspense>
+            <main className="flex-1">{children}</main>
+            <Footer company={company} />
+          </CartProvider>
+        </CompanyProvider>
       </body>
     </html>
   );
