@@ -1,0 +1,32 @@
+[
+  {
+    "id": "apple",
+    "name": "Apple",
+    "slug": "apple",
+    "displayOrder": 1
+  },
+  {
+    "id": "dell",
+    "name": "Dell",
+    "slug": "dell",
+    "displayOrder": 2
+  },
+  {
+    "id": "hp",
+    "name": "HP",
+    "slug": "hp",
+    "displayOrder": 3
+  },
+  {
+    "id": "lenovo",
+    "name": "Lenovo",
+    "slug": "lenovo",
+    "displayOrder": 4
+  },
+  {
+    "id": "outras-marcas",
+    "name": "Outras Marcas",
+    "slug": "outras-marcas",
+    "displayOrder": 5
+  }
+]
