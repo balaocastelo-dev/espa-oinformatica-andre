@@ -79,8 +79,20 @@ async function api<T>(url: string, options?: RequestInit): Promise<T> {
     headers: { "Content-Type": "application/json" },
     ...options,
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || "Erro na requisição");
+  let data: unknown = null;
+  try {
+    data = await res.json();
+  } catch {
+    // corpo vazio ou resposta não-JSON (ex.: timeout do servidor)
+    data = null;
+  }
+  if (!res.ok) {
+    const message =
+      data && typeof data === "object" && "error" in data
+        ? String((data as { error: unknown }).error)
+        : `Erro na requisição (status ${res.status})`;
+    throw new Error(message);
+  }
   return data as T;
 }
 
@@ -1176,16 +1188,16 @@ function ImportModal({
     setBusy(true);
     try {
       const data = await api<{
-        imported: number;
-        skipped: number;
-        total: number;
+        imported?: number;
+        skipped?: number;
+        total?: number;
         enriched?: number;
       }>("/api/products/import", {
         method: "POST",
         body: JSON.stringify({ text }),
       });
       onDone(
-        `${data.imported} produto(s) importado(s), ${data.skipped} ignorado(s). Total no catálogo: ${data.total}.`
+        `${data?.imported ?? 0} produto(s) importado(s), ${data?.skipped ?? 0} ignorado(s). Total no catálogo: ${data?.total ?? 0}.`
       );
     } catch (err) {
       onError((err as Error).message);

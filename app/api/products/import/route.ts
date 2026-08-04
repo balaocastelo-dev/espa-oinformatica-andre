@@ -12,6 +12,12 @@ import {
 } from "@/lib/kabum";
 import type { Product } from "@/lib/format";
 
+export const runtime = "nodejs";
+
+// O enriquecimento (baixar galeria do Kabum) é "best-effort": se demorar
+// demais, os itens restantes são importados mesmo assim com a imagem original.
+const ENRICH_TIMEOUT_MS = 40_000;
+
 const BRANDS = [
   { match: /apple|macbook/i, name: "Apple" },
   { match: /dell/i, name: "Dell" },
@@ -68,96 +74,106 @@ async function mapWithConcurrency<T, R>(
 }
 
 export async function POST(request: NextRequest) {
-  const body = await request.json().catch(() => null);
-  if (!body) {
-    return NextResponse.json({ error: "Corpo inválido" }, { status: 400 });
-  }
+  try {
+    const body = await request.json().catch(() => null);
+    if (!body) {
+      return NextResponse.json({ error: "Corpo inválido" }, { status: 400 });
+    }
 
-  const rawItems = Array.isArray(body.items) ? body.items : parseTsv(String(body.text ?? ""));
-  if (!rawItems.length) {
-    return NextResponse.json(
-      { error: "Nenhum item encontrado. Cole o conteúdo com as colunas: URL do produto, URL da imagem, Nome, Preço" },
-      { status: 400 }
-    );
-  }
+    const rawItems = Array.isArray(body.items) ? body.items : parseTsv(String(body.text ?? ""));
+    if (!rawItems.length) {
+      return NextResponse.json(
+        { error: "Nenhum item encontrado. Cole o conteúdo com as colunas: URL do produto, URL da imagem, Nome, Preço" },
+        { status: 400 }
+      );
+    }
 
-  const products = await readProducts();
-  const existingKeys = new Set(products.map((p) => p.product_url || "").filter(Boolean));
-  const takenSlugs = new Set(products.map((p) => p.slug));
+    const products = await readProducts();
+    const existingKeys = new Set(products.map((p) => p.product_url || "").filter(Boolean));
+    const takenSlugs = new Set(products.map((p) => p.slug));
 
-  const toImport = rawItems.filter((item: Record<string, unknown>) => {
-    const url = String(item?.url ?? "").trim();
-    if (url && existingKeys.has(url)) return false;
-    return true;
-  });
-
-  if (!toImport.length) {
-    return NextResponse.json(
-      { imported: 0, skipped: rawItems.length, error: "Todos os itens já existem no catálogo" },
-      { status: 200 }
-    );
-  }
-
-  const enriched = await mapWithConcurrency(toImport, 4, async (item: Record<string, unknown>) => {
-    const name = String(item.name ?? "").replace(/\s+/g, " ").replace(/^\s*-\s*/, "").trim();
-    const image = String(item.image ?? "").trim();
-    const url = String(item.url ?? "").trim() || undefined;
-    const productId = kabumIdFromUrl(url || "") || kabumIdFromImage(image);
-    const info = productId ? await fetchKabumGallery(productId) : null;
-
-    return { name, image, url, productId, info };
-  });
-
-  const newProducts: Product[] = [];
-  let enrichedCount = 0;
-
-  for (const item of toImport) {
-    const name = String(item.name ?? "").replace(/\s+/g, " ").replace(/^\s*-\s*/, "").trim();
-    if (!name) continue;
-
-    const rawPrice = parsePriceText(item.price);
-    if (!rawPrice) continue;
-
-    const slug = uniqueSlug(slugify(name), takenSlugs);
-    takenSlugs.add(slug);
-
-    const isUsed = /usado|recondicionado|seminovo/i.test(name);
-    const badge = /recondicionado/i.test(name)
-      ? "Recondicionado"
-      : isUsed
-        ? "Seminovo"
-        : undefined;
-
-    const found = enriched.find((e) => e.name === name);
-    const gallery = found?.info?.gallery ?? [];
-    if (gallery.length) enrichedCount++;
-
-    newProducts.push({
-      id: slug,
-      slug,
-      name,
-      price: formatPrice(rawPrice),
-      image: gallery[0] || highRes(String(item.image ?? "")) || String(item.image ?? "").trim() || "/logo.png",
-      category: brandOf(name),
-      badge,
-      description: makeDescription(name),
-      specs: extractSpecs(name),
-      ...(gallery.length > 1 ? { image_urls: gallery } : {}),
-      ...(found?.url ? { product_url: found.url } : {}),
+    const toImport = rawItems.filter((item: Record<string, unknown>) => {
+      const url = String(item?.url ?? "").trim();
+      if (url && existingKeys.has(url)) return false;
+      return true;
     });
+
+    if (!toImport.length) {
+      return NextResponse.json(
+        { imported: 0, skipped: rawItems.length, error: "Todos os itens já existem no catálogo" },
+        { status: 200 }
+      );
+    }
+
+    const deadline = Date.now() + ENRICH_TIMEOUT_MS;
+
+    const enriched = await mapWithConcurrency(toImport, 4, async (item: Record<string, unknown>) => {
+      const name = String(item.name ?? "").replace(/\s+/g, " ").replace(/^\s*-\s*/, "").trim();
+      const image = String(item.image ?? "").trim();
+      const url = String(item.url ?? "").trim() || undefined;
+      if (Date.now() >= deadline) return { name, image, url, info: null };
+      const productId = kabumIdFromUrl(url || "") || kabumIdFromImage(image);
+      const info = productId ? await fetchKabumGallery(productId) : null;
+      return { name, image, url, info };
+    });
+
+    const newProducts: Product[] = [];
+    let enrichedCount = 0;
+
+    for (const item of toImport) {
+      const name = String(item.name ?? "").replace(/\s+/g, " ").replace(/^\s*-\s*/, "").trim();
+      if (!name) continue;
+
+      const rawPrice = parsePriceText(String(item.price ?? ""));
+      if (!rawPrice) continue;
+
+      const slug = uniqueSlug(slugify(name), takenSlugs);
+      takenSlugs.add(slug);
+
+      const isUsed = /usado|recondicionado|seminovo/i.test(name);
+      const badge = /recondicionado/i.test(name)
+        ? "Recondicionado"
+        : isUsed
+          ? "Seminovo"
+          : undefined;
+
+      const found = enriched.find((e) => e.name === name);
+      const gallery = found?.info?.gallery ?? [];
+      if (gallery.length) enrichedCount++;
+
+      newProducts.push({
+        id: slug,
+        slug,
+        name,
+        price: formatPrice(rawPrice),
+        image: gallery[0] || highRes(String(item.image ?? "")) || String(item.image ?? "").trim() || "/logo.png",
+        category: brandOf(name),
+        badge,
+        description: makeDescription(name),
+        specs: extractSpecs(name),
+        ...(gallery.length > 1 ? { image_urls: gallery } : {}),
+        ...(found?.url ? { product_url: found.url } : {}),
+      });
+    }
+
+    if (!newProducts.length) {
+      return NextResponse.json({ imported: 0, skipped: rawItems.length }, { status: 200 });
+    }
+
+    products.push(...newProducts);
+    await writeProducts(products);
+
+    return NextResponse.json({
+      imported: newProducts.length,
+      skipped: rawItems.length - newProducts.length,
+      total: products.length,
+      enriched: enrichedCount,
+    });
+  } catch (error) {
+    console.error("Erro ao importar produtos:", error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Erro interno ao importar produtos" },
+      { status: 500 }
+    );
   }
-
-  if (!newProducts.length) {
-    return NextResponse.json({ imported: 0, skipped: rawItems.length }, { status: 200 });
-  }
-
-  products.push(...newProducts);
-  await writeProducts(products);
-
-  return NextResponse.json({
-    imported: newProducts.length,
-    skipped: rawItems.length - newProducts.length,
-    total: products.length,
-    enriched: enrichedCount,
-  });
 }

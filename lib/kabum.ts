@@ -81,7 +81,7 @@ export type KabumEnrich = {
 
 export async function fetchKabumGallery(productId: string): Promise<KabumEnrich | null> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15000);
+  const timeout = setTimeout(() => controller.abort(), 8000);
   try {
     const res = await fetch(`https://www.kabum.com.br/produto/${productId}`, {
       signal: controller.signal,
