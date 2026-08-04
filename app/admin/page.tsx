@@ -856,7 +856,17 @@ function CompanyPanel({
 
   const selectLogo = (file: File | undefined) => {
     if (!file) return;
-    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+    const extension = file.name.toLowerCase().split(".").pop();
+    const detectedType =
+      file.type ||
+      (extension === "png"
+        ? "image/png"
+        : extension === "jpg" || extension === "jpeg"
+          ? "image/jpeg"
+          : extension === "webp"
+            ? "image/webp"
+            : "");
+    if (!["image/png", "image/jpeg", "image/webp"].includes(detectedType)) {
       notify("err", "Formato inválido. Use PNG, JPG ou WEBP");
       return;
     }

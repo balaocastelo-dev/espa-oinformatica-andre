@@ -11,15 +11,48 @@ const EXTENSIONS: Record<string, string> = {
   "image/webp": "webp",
 };
 
-export async function POST(request: NextRequest) {
-  const formData = await request.formData();
-  const file = formData.get("logo");
+function extensionFromName(name: string): string | undefined {
+  const extension = name.toLowerCase().split(".").pop();
+  return extension === "png" || extension === "jpg" || extension === "jpeg" || extension === "webp"
+    ? extension === "jpeg"
+      ? "jpg"
+      : extension
+    : undefined;
+}
 
-  if (!file || typeof file === "string") {
+function hasValidSignature(extension: string, bytes: Uint8Array): boolean {
+  if (extension === "png") {
+    return bytes.length >= 8 && bytes.slice(0, 8).every((value, index) => value === [137, 80, 78, 71, 13, 10, 26, 10][index]);
+  }
+  if (extension === "jpg") {
+    return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  }
+  return (
+    extension === "webp" &&
+    bytes.length >= 12 &&
+    String.fromCharCode(...bytes.slice(0, 4)) === "RIFF" &&
+    String.fromCharCode(...bytes.slice(8, 12)) === "WEBP"
+  );
+}
+
+export async function POST(request: NextRequest) {
+  let file: File | null = null;
+  try {
+    const formData = await request.formData();
+    const value = formData.get("logo");
+    file = value && typeof value !== "string" ? value : null;
+  } catch {
+    return NextResponse.json(
+      { error: "Envie o logo pelo campo de arquivo do formulário" },
+      { status: 400 }
+    );
+  }
+
+  if (!file) {
     return NextResponse.json({ error: "Selecione um arquivo de logo" }, { status: 400 });
   }
 
-  const extension = EXTENSIONS[file.type];
+  const extension = EXTENSIONS[file.type] ?? extensionFromName(file.name);
   if (!extension) {
     return NextResponse.json(
       { error: "Formato inválido. Use PNG, JPG ou WEBP" },
@@ -31,10 +64,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "O logo deve ter no máximo 5 MB" }, { status: 400 });
   }
 
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (!hasValidSignature(extension, bytes)) {
+    return NextResponse.json({ error: "O arquivo selecionado não é uma imagem válida" }, { status: 400 });
+  }
+
   const fileName = `logo.${extension}`;
   const publicDir = path.join(process.cwd(), "public");
   await fs.mkdir(publicDir, { recursive: true });
-  await fs.writeFile(path.join(publicDir, fileName), Buffer.from(await file.arrayBuffer()));
+  await fs.writeFile(path.join(publicDir, fileName), Buffer.from(bytes));
 
   const current = await readCompanySettings();
   const settings = { ...current, logoPath: `/${fileName}` };
