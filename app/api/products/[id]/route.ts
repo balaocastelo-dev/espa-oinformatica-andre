@@ -54,9 +54,15 @@ export async function PUT(request: NextRequest, props: Params) {
   };
 
   products[index] = updated;
-  await writeProducts(products);
+  const saved = await writeProducts(products);
 
-  return NextResponse.json(updated);
+  return NextResponse.json({
+    ...updated,
+    _meta: {
+      storage_persisted: saved,
+      storage_mode: saved ? "disk" : "memory_only",
+    },
+  });
 }
 
 export async function DELETE(_request: NextRequest, props: Params) {
@@ -66,6 +72,10 @@ export async function DELETE(_request: NextRequest, props: Params) {
   if (filtered.length === products.length) {
     return NextResponse.json({ error: "Produto não encontrado" }, { status: 404 });
   }
-  await writeProducts(filtered);
-  return NextResponse.json({ success: true });
+  const saved = await writeProducts(filtered);
+  return NextResponse.json({
+    success: true,
+    storage_persisted: saved,
+    storage_mode: saved ? "disk" : "memory_only",
+  });
 }

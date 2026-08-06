@@ -87,7 +87,19 @@ export async function POST(request: NextRequest) {
   await ensureCategory(category);
 
   products.push(product);
-  await writeProducts(products);
+  const saved = await writeProducts(products);
 
-  return NextResponse.json(product, { status: 201 });
+  return NextResponse.json(
+    {
+      ...product,
+      _meta: {
+        storage_persisted: saved,
+        storage_mode: saved ? "disk" : "memory_only",
+        note: saved
+          ? undefined
+          : "Ambiente read-only (ex.: Vercel). Alterações ficam apenas na memória da instância atual até o próximo cold start.",
+      },
+    },
+    { status: 201 }
+  );
 }

@@ -117,8 +117,59 @@ export const DEFAULT_COMPANY_SETTINGS: CompanySettings = {
   whatsappDefaultMessage: SITE_CONFIG.whatsapp.messageDefault,
 };
 
-const DATA_DIR = path.join(process.cwd(), "data");
-const COMPANY_FILE = path.join(DATA_DIR, "company.json");
+const DATA_DIR_SRC = path.join(process.cwd(), "data");
+const COMPANY_FILE_SRC = path.join(DATA_DIR_SRC, "company.json");
+
+const TMP_DIR =
+  process.env.NODE_ENV === "production"
+    ? ((() => {
+        const candidates = ["/tmp", process.env.TMPDIR, process.env.TEMP].filter(
+          Boolean
+        ) as string[];
+        return candidates[0] || DATA_DIR_SRC;
+      })())
+    : DATA_DIR_SRC;
+
+const WRITABLE_DIR = TMP_DIR || DATA_DIR_SRC;
+const COMPANY_FILE_RW = path.join(WRITABLE_DIR, "company.json");
+
+let companyCache: CompanySettings | null = null;
+let companyCacheMtime: number | null = null;
+let companyCachePath: string | null = null;
+
+let companyFsWritable: boolean | null = null;
+
+async function isCompanyFsWritable(): Promise<boolean> {
+  if (companyFsWritable !== null) return companyFsWritable;
+  try {
+    await fs.mkdir(WRITABLE_DIR, { recursive: true });
+    const probe = path.join(WRITABLE_DIR, ".company_write_probe");
+    await fs.writeFile(probe, "ok", "utf8");
+    await fs.unlink(probe);
+    companyFsWritable = true;
+  } catch {
+    companyFsWritable = false;
+  }
+  return companyFsWritable;
+}
+
+async function getMtime(f: string): Promise<number | null> {
+  try {
+    const st = await fs.stat(f);
+    return st.mtimeMs;
+  } catch {
+    return null;
+  }
+}
+
+async function readJson<T>(f: string): Promise<T | null> {
+  try {
+    const raw = await fs.readFile(f, "utf8");
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
 
 function recordOf(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -198,15 +249,43 @@ export function mergeCompanySettings(
 }
 
 export async function readCompanySettings(): Promise<CompanySettings> {
-  try {
-    const raw = await fs.readFile(COMPANY_FILE, "utf8");
-    return mergeCompanySettings(JSON.parse(raw));
-  } catch {
-    return DEFAULT_COMPANY_SETTINGS;
+  const rwMtime = COMPANY_FILE_RW !== COMPANY_FILE_SRC ? await getMtime(COMPANY_FILE_RW) : null;
+  const srcMtime = await getMtime(COMPANY_FILE_SRC);
+
+  let chosenPath = COMPANY_FILE_SRC;
+  let chosenMtime: number | null = srcMtime;
+  if (rwMtime !== null && (srcMtime === null || rwMtime >= srcMtime)) {
+    chosenPath = COMPANY_FILE_RW;
+    chosenMtime = rwMtime;
   }
+
+  if (
+    companyCache &&
+    companyCachePath === chosenPath &&
+    companyCacheMtime === chosenMtime
+  ) {
+    return companyCache;
+  }
+
+  const raw = (await readJson<CompanySettings>(chosenPath)) as CompanySettings | null;
+  const merged = raw ? mergeCompanySettings(raw) : DEFAULT_COMPANY_SETTINGS;
+  companyCache = merged;
+  companyCachePath = chosenPath;
+  companyCacheMtime = chosenMtime;
+  return merged;
 }
 
-export async function writeCompanySettings(settings: CompanySettings): Promise<void> {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  await fs.writeFile(COMPANY_FILE, JSON.stringify(settings, null, 2) + "\n", "utf8");
+export async function writeCompanySettings(settings: CompanySettings): Promise<boolean> {
+  companyCache = settings;
+  companyCachePath = COMPANY_FILE_RW;
+  companyCacheMtime = Date.now();
+  const writable = await isCompanyFsWritable();
+  if (!writable) return false;
+  try {
+    await fs.mkdir(WRITABLE_DIR, { recursive: true });
+    await fs.writeFile(COMPANY_FILE_RW, JSON.stringify(settings, null, 2) + "\n", "utf8");
+    return true;
+  } catch {
+    return false;
+  }
 }

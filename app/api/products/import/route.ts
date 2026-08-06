@@ -258,7 +258,7 @@ export async function POST(request: NextRequest) {
     await ensureCategories(Array.from(categorySet));
 
     products.push(...newProducts);
-    await writeProducts(products);
+    const saved = await writeProducts(products);
 
     return NextResponse.json({
       imported: newProducts.length,
@@ -266,6 +266,11 @@ export async function POST(request: NextRequest) {
       skippedDetails: skippedItems.length ? skippedItems : undefined,
       total: products.length,
       enriched: enrichedCount,
+      storage_persisted: saved,
+      storage_mode: saved ? "disk" : "memory_only",
+      note: saved
+        ? undefined
+        : "Ambiente read-only (ex.: Vercel). Os dados ficam apenas na memória da instância atual. Para persistir, conecte um banco de dados externo.",
     });
   } catch (error) {
     console.error("Erro ao importar produtos:", error);

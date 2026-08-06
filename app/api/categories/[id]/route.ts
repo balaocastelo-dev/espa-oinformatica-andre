@@ -34,8 +34,9 @@ export async function PUT(request: NextRequest, props: Params) {
   const oldName = category.name;
   const renamed: typeof category = { ...category, name, slug: slugify(name) };
   categories[categories.indexOf(category)] = renamed;
-  await writeCategories(categories);
+  const savedCats = await writeCategories(categories);
 
+  let savedProducts = true;
   if (oldName !== name) {
     const products = await readProducts();
     let changed = false;
@@ -45,10 +46,16 @@ export async function PUT(request: NextRequest, props: Params) {
         changed = true;
       }
     }
-    if (changed) await writeProducts(products);
+    if (changed) savedProducts = await writeProducts(products);
   }
 
-  return NextResponse.json(renamed);
+  return NextResponse.json({
+    ...renamed,
+    _meta: {
+      storage_persisted: savedCats && savedProducts,
+      storage_mode: savedCats && savedProducts ? "disk" : "memory_only",
+    },
+  });
 }
 
 export async function DELETE(_request: NextRequest, props: Params) {
@@ -59,7 +66,7 @@ export async function DELETE(_request: NextRequest, props: Params) {
     return NextResponse.json({ error: "Categoria não encontrada" }, { status: 404 });
   }
 
-  await writeCategories(categories.filter((c) => c.id !== id));
+  const savedCats = await writeCategories(categories.filter((c) => c.id !== id));
 
   const products = await readProducts();
   let changed = false;
@@ -69,7 +76,12 @@ export async function DELETE(_request: NextRequest, props: Params) {
       changed = true;
     }
   }
-  if (changed) await writeProducts(products);
+  let savedProducts = true;
+  if (changed) savedProducts = await writeProducts(products);
 
-  return NextResponse.json({ success: true });
+  return NextResponse.json({
+    success: true,
+    storage_persisted: savedCats && savedProducts,
+    storage_mode: savedCats && savedProducts ? "disk" : "memory_only",
+  });
 }

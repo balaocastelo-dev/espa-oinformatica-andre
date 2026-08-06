@@ -32,7 +32,16 @@ export async function POST(request: NextRequest) {
   }
 
   categories.push(category);
-  await writeCategories(categories);
+  const saved = await writeCategories(categories);
 
-  return NextResponse.json(category, { status: 201 });
+  return NextResponse.json(
+    {
+      ...category,
+      _meta: {
+        storage_persisted: saved,
+        storage_mode: saved ? "disk" : "memory_only",
+      },
+    },
+    { status: 201 }
+  );
 }
