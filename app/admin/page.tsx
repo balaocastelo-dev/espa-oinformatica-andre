@@ -1192,13 +1192,20 @@ function ImportModal({
         skipped?: number;
         total?: number;
         enriched?: number;
+        skippedDetails?: string[];
       }>("/api/products/import", {
         method: "POST",
         body: JSON.stringify({ text }),
       });
-      onDone(
-        `${data?.imported ?? 0} produto(s) importado(s), ${data?.skipped ?? 0} ignorado(s). Total no catálogo: ${data?.total ?? 0}.`
-      );
+      const imported = data?.imported ?? 0;
+      const skipped = data?.skipped ?? 0;
+      const total = data?.total ?? 0;
+      let msg = `${imported} produto(s) importado(s), ${skipped} ignorado(s). Total no catálogo: ${total}.`;
+      if (data?.skippedDetails?.length) {
+        msg += "\n\nItens ignorados:\n- " + data.skippedDetails.slice(0, 10).join("\n- ");
+        if (data.skippedDetails.length > 10) msg += `\n... e mais ${data.skippedDetails.length - 10}`;
+      }
+      onDone(msg);
     } catch (err) {
       onError((err as Error).message);
     } finally {
@@ -1219,7 +1226,8 @@ function ImportModal({
               Cole ou envie um arquivo .txt / .tsv com colunas separadas por tab:{" "}
               <span className="font-semibold text-slate-700">
                 URL do produto · URL da imagem · Nome · Preço
-              </span>
+              </span>{" "}
+              (não use planilhas .xls/.xlsx — exporte para TSV primeiro)
             </p>
           </div>
           <button
@@ -1238,7 +1246,7 @@ function ImportModal({
             Escolher arquivo
             <input
               type="file"
-              accept=".txt,.tsv,.csv,.xls,.xlsx"
+              accept=".txt,.tsv,.csv,text/plain,text/tab-separated-values"
               className="hidden"
               onChange={(e) => {
                 const file = e.target.files?.[0];

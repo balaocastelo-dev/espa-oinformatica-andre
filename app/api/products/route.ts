@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readProducts, writeProducts } from "@/lib/store";
+import {
+  readProducts,
+  writeProducts,
+  readCategories,
+  writeCategories,
+  type Category,
+} from "@/lib/store";
 import { slugify, uniqueSlug } from "@/lib/slug";
 import { normalizePrice } from "@/lib/format";
 import type { Product } from "@/lib/format";
@@ -7,6 +13,23 @@ import type { Product } from "@/lib/format";
 export async function GET() {
   const products = await readProducts();
   return NextResponse.json(products);
+}
+
+async function ensureCategory(categoryName: string): Promise<void> {
+  if (!categoryName) return;
+  const categories = await readCategories();
+  if (categories.some((c) => c.name.toLowerCase() === categoryName.toLowerCase())) return;
+  const order = categories.length
+    ? Math.max(...categories.map((c) => c.displayOrder ?? 0)) + 1
+    : 1;
+  const slugBase = slugify(categoryName) || `categoria-${order}`;
+  let slug = slugBase;
+  let n = 1;
+  while (categories.some((c) => c.slug === slug)) {
+    slug = `${slugBase}-${++n}`;
+  }
+  const cat: Category = { id: slug, name: categoryName, slug, displayOrder: order };
+  await writeCategories([...categories, cat]);
 }
 
 export async function POST(request: NextRequest) {
@@ -23,9 +46,26 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Preço inválido" }, { status: 400 });
   }
 
+  const product_url_raw = String(body.product_url ?? "").trim();
+  const product_url = product_url_raw || undefined;
+
   const products = await readProducts();
+
+  if (product_url) {
+    const duplicate = products.find(
+      (p) => (p.product_url || "").trim().toLowerCase() === product_url.toLowerCase()
+    );
+    if (duplicate) {
+      return NextResponse.json(
+        { error: `Já existe um produto com este link do Kabum: "${duplicate.name}"` },
+        { status: 409 }
+      );
+    }
+  }
+
   const taken = new Set(products.map((p) => p.slug));
   const slug = uniqueSlug(slugify(name), taken);
+  const category = String(body.category ?? "").trim() || "Outras Marcas";
 
   const product: Product = {
     id: slug,
@@ -33,7 +73,7 @@ export async function POST(request: NextRequest) {
     name,
     price,
     image: String(body.image ?? "").trim() || "/logo.png",
-    category: String(body.category ?? "").trim() || "Outras Marcas",
+    category,
     badge: body.badge ? String(body.badge).trim() : undefined,
     description: body.description ? String(body.description).trim() : undefined,
     specs: body.specs && typeof body.specs === "object" ? body.specs : undefined,
@@ -41,8 +81,10 @@ export async function POST(request: NextRequest) {
       Array.isArray(body.image_urls)
         ? body.image_urls.map((u: unknown) => String(u).trim()).filter(Boolean)
         : undefined,
-    product_url: body.product_url ? String(body.product_url).trim() || undefined : undefined,
+    product_url,
   };
+
+  await ensureCategory(category);
 
   products.push(product);
   await writeProducts(products);

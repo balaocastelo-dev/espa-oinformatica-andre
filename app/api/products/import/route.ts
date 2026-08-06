@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readProducts, writeProducts } from "@/lib/store";
+import {
+  readProducts,
+  writeProducts,
+  readCategories,
+  writeCategories,
+  type Category,
+} from "@/lib/store";
 import { slugify, uniqueSlug } from "@/lib/slug";
-import { formatPrice } from "@/lib/format";
+import { normalizePrice } from "@/lib/format";
 import {
   fetchKabumGallery,
   highRes,
@@ -73,6 +79,35 @@ async function mapWithConcurrency<T, R>(
   return results;
 }
 
+async function ensureCategories(categoryNames: string[]): Promise<void> {
+  if (!categoryNames.length) return;
+  const categories = await readCategories();
+  const existing = new Set(categories.map((c) => c.name.toLowerCase()));
+  const toAdd: Category[] = [];
+  let order = categories.length
+    ? Math.max(...categories.map((c) => c.displayOrder ?? 0)) + 1
+    : 1;
+  for (const name of categoryNames) {
+    if (!name || existing.has(name.toLowerCase())) continue;
+    const slugName = slugify(name) || `categoria-${order}`;
+    let slug = slugName;
+    let n = 1;
+    while (categories.some((c) => c.slug === slug) || toAdd.some((c) => c.slug === slug)) {
+      slug = `${slugName}-${++n}`;
+    }
+    toAdd.push({
+      id: slug,
+      name,
+      slug,
+      displayOrder: order++,
+    });
+    existing.add(name.toLowerCase());
+  }
+  if (toAdd.length) {
+    await writeCategories([...categories, ...toAdd]);
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => null);
@@ -80,7 +115,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Corpo inválido" }, { status: 400 });
     }
 
-    const rawItems = Array.isArray(body.items) ? body.items : parseTsv(String(body.text ?? ""));
+    const rawItems = Array.isArray(body.items)
+      ? (body.items as Record<string, unknown>[])
+      : parseTsv(String(body.text ?? ""));
     if (!rawItems.length) {
       return NextResponse.json(
         { error: "Nenhum item encontrado. Cole o conteúdo com as colunas: URL do produto, URL da imagem, Nome, Preço" },
@@ -89,12 +126,20 @@ export async function POST(request: NextRequest) {
     }
 
     const products = await readProducts();
-    const existingKeys = new Set(products.map((p) => p.product_url || "").filter(Boolean));
+    const existingKeys = new Set(
+      products.map((p) => (p.product_url || "").trim().toLowerCase()).filter(Boolean)
+    );
     const takenSlugs = new Set(products.map((p) => p.slug));
 
+    const batchSeenUrls = new Set<string>();
     const toImport = rawItems.filter((item: Record<string, unknown>) => {
       const url = String(item?.url ?? "").trim();
-      if (url && existingKeys.has(url)) return false;
+      if (url) {
+        const urlKey = url.toLowerCase();
+        if (existingKeys.has(urlKey)) return false;
+        if (batchSeenUrls.has(urlKey)) return false;
+        batchSeenUrls.add(urlKey);
+      }
       return true;
     });
 
@@ -107,25 +152,60 @@ export async function POST(request: NextRequest) {
 
     const deadline = Date.now() + ENRICH_TIMEOUT_MS;
 
-    const enriched = await mapWithConcurrency(toImport, 4, async (item: Record<string, unknown>) => {
-      const name = String(item.name ?? "").replace(/\s+/g, " ").replace(/^\s*-\s*/, "").trim();
-      const image = String(item.image ?? "").trim();
-      const url = String(item.url ?? "").trim() || undefined;
-      if (Date.now() >= deadline) return { name, image, url, info: null };
-      const productId = kabumIdFromUrl(url || "") || kabumIdFromImage(image);
-      const info = productId ? await fetchKabumGallery(productId) : null;
-      return { name, image, url, info };
-    });
+    type EnrichedItem = {
+      name: string;
+      image: string;
+      url: string | undefined;
+      priceRaw: string | number | undefined;
+      info: Awaited<ReturnType<typeof fetchKabumGallery>>;
+    };
+
+    const enriched: EnrichedItem[] = await mapWithConcurrency(
+      toImport,
+      4,
+      async (item: Record<string, unknown>) => {
+        const name = String(item.name ?? "")
+          .replace(/\s+/g, " ")
+          .replace(/^\s*-\s*/, "")
+          .trim();
+        const image = String(item.image ?? "").trim();
+        const url = String(item.url ?? "").trim() || undefined;
+        const rawPrice = item.price;
+        const priceRaw: string | number | undefined =
+          typeof rawPrice === "string" || typeof rawPrice === "number" ? rawPrice : undefined;
+        if (Date.now() >= deadline) return { name, image, url, priceRaw, info: null };
+        const productId = kabumIdFromUrl(url || "") || kabumIdFromImage(image);
+        const info = productId ? await fetchKabumGallery(productId) : null;
+        return { name, image, url, priceRaw, info };
+      }
+    );
 
     const newProducts: Product[] = [];
     let enrichedCount = 0;
+    const skippedItems: string[] = [];
+    const categorySet = new Set<string>();
 
-    for (const item of toImport) {
-      const name = String(item.name ?? "").replace(/\s+/g, " ").replace(/^\s*-\s*/, "").trim();
-      if (!name) continue;
+    for (let i = 0; i < toImport.length; i++) {
+      const e = enriched[i];
+      if (!e) continue;
 
-      const rawPrice = parsePriceText(String(item.price ?? ""));
-      if (!rawPrice) continue;
+      const name = e.name;
+      if (!name) {
+        skippedItems.push(`Linha ${i + 1}: nome vazio`);
+        continue;
+      }
+
+      let price: string;
+      try {
+        const raw = parsePriceText(
+          typeof e.priceRaw === "string" || typeof e.priceRaw === "number" ? e.priceRaw : ""
+        );
+        if (!raw) throw new Error("preço zero ou inválido");
+        price = normalizePrice(raw);
+      } catch {
+        skippedItems.push(`"${name}": preço inválido`);
+        continue;
+      }
 
       const slug = uniqueSlug(slugify(name), takenSlugs);
       takenSlugs.add(slug);
@@ -137,35 +217,53 @@ export async function POST(request: NextRequest) {
           ? "Seminovo"
           : undefined;
 
-      const found = enriched.find((e) => e.name === name);
-      const gallery = found?.info?.gallery ?? [];
+      const gallery = e.info?.gallery ?? [];
       if (gallery.length) enrichedCount++;
+
+      const category = brandOf(name);
+      categorySet.add(category);
 
       newProducts.push({
         id: slug,
         slug,
         name,
-        price: formatPrice(rawPrice),
-        image: gallery[0] || highRes(String(item.image ?? "")) || String(item.image ?? "").trim() || "/logo.png",
-        category: brandOf(name),
+        price,
+        image:
+          gallery[0] ||
+          highRes(e.image) ||
+          e.image ||
+          "/logo.png",
+        category,
         badge,
         description: makeDescription(name),
         specs: extractSpecs(name),
         ...(gallery.length > 1 ? { image_urls: gallery } : {}),
-        ...(found?.url ? { product_url: found.url } : {}),
+        ...(e.url ? { product_url: e.url } : {}),
       });
     }
 
+    const skippedCount = rawItems.length - newProducts.length;
+
     if (!newProducts.length) {
-      return NextResponse.json({ imported: 0, skipped: rawItems.length }, { status: 200 });
+      return NextResponse.json(
+        {
+          imported: 0,
+          skipped: skippedCount,
+          skippedDetails: skippedItems.length ? skippedItems : undefined,
+        },
+        { status: 200 }
+      );
     }
+
+    await ensureCategories(Array.from(categorySet));
 
     products.push(...newProducts);
     await writeProducts(products);
 
     return NextResponse.json({
       imported: newProducts.length,
-      skipped: rawItems.length - newProducts.length,
+      skipped: skippedCount,
+      skippedDetails: skippedItems.length ? skippedItems : undefined,
       total: products.length,
       enriched: enrichedCount,
     });
