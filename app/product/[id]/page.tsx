@@ -1,8 +1,17 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { CheckCircle2, ChevronRight, ExternalLink, MessageCircle, ShieldCheck, Truck } from "lucide-react";
+import {
+  CheckCircle2,
+  ChevronRight,
+  ExternalLink,
+  MessageCircle,
+  Play,
+  ShieldCheck,
+  Tag,
+  Truck,
+} from "lucide-react";
 import { getProductBySlug, getProductsByCategory } from "@/lib/products";
-import { parsePriceToNumber } from "@/lib/format";
+import { parsePriceToNumber, youtubeIdFromUrl } from "@/lib/format";
 import ProductCard from "@/components/ProductCard";
 import ProductActions from "@/components/ProductActions";
 import ProductGallery from "@/components/ProductGallery";
@@ -78,12 +87,24 @@ export default async function ProductPage(props: {
           </h1>
 
           <div className="mt-4">
+            {product.badge && (
+              <div className="mb-3 inline-flex items-center gap-1.5 rounded-full bg-[#E60012] px-3 py-1 text-xs font-black uppercase tracking-wide text-white shadow-sm">
+                <Tag size={12} />
+                {product.badge}
+              </div>
+            )}
             <div className="text-3xl font-black text-slate-900">
               {product.price}
             </div>
-            <div className="mt-1 text-sm text-slate-500">
-              ou 10x de R$ {(price / 10).toFixed(2)} sem juros
-            </div>
+            {product.installment_price ? (
+              <div className="mt-1 text-sm font-semibold text-emerald-700">
+                {product.installment_text?.trim() || "ou 12x de"} {product.installment_price}
+              </div>
+            ) : (
+              <div className="mt-1 text-sm text-slate-500">
+                ou 12x de R$ {(price / 12).toFixed(2).replace(".", ",")} sem juros
+              </div>
+            )}
           </div>
 
           <ul className="mt-4 space-y-2 text-sm text-slate-600">
@@ -141,6 +162,28 @@ export default async function ProductPage(props: {
           </dl>
         </div>
       )}
+
+      {(() => {
+        const youtubeId = youtubeIdFromUrl(product.youtube_url);
+        if (!youtubeId) return null;
+        return (
+          <div className="mt-10 rounded-3xl border border-slate-200 bg-white p-5 sm:p-8">
+            <h2 className="mb-4 flex items-center gap-2 text-lg font-black">
+              <Play size={18} className="text-[#E60012]" />
+              Veja este produto em vídeo
+            </h2>
+            <div className="relative w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-900 pt-[56.25%]">
+              <iframe
+                className="absolute inset-0 h-full w-full"
+                src={`https://www.youtube.com/embed/${youtubeId}?rel=0&modestbranding=1`}
+                title={`Vídeo de ${product.name}`}
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                allowFullScreen
+              />
+            </div>
+          </div>
+        );
+      })()}
 
       {related.length > 0 && (
         <div className="mt-12">

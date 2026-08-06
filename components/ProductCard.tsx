@@ -10,7 +10,6 @@ import type { Product } from "@/lib/format";
 export default function ProductCard({ product }: { product: Product }) {
   const { addToCart } = useCart();
   const price = parsePriceToNumber(product.price);
-  const installment = price / 10;
 
   return (
     <div className="group relative flex min-w-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white transition hover:shadow-lg">
@@ -26,7 +25,7 @@ export default function ProductCard({ product }: { product: Product }) {
           className="object-contain p-2 transition-transform duration-300 group-hover:scale-105 sm:p-4"
         />
         {product.badge && (
-          <span className="absolute left-2 top-2 rounded-full bg-emerald-600 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white">
+          <span className="absolute left-2 top-2 rounded-full bg-[#E60012] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white shadow-sm">
             {product.badge}
           </span>
         )}
@@ -45,9 +44,15 @@ export default function ProductCard({ product }: { product: Product }) {
 
         <div className="mt-2">
           <div className="text-base font-black text-slate-900 sm:text-lg">{product.price}</div>
-          <div className="text-[10px] leading-snug text-slate-500 sm:text-xs">
-            ou 10x de R$ {(installment / 10).toFixed(2)} sem juros
-          </div>
+          {product.installment_price ? (
+            <div className="text-[10px] font-semibold leading-snug text-emerald-700 sm:text-xs">
+              {product.installment_text?.trim() || "ou 12x de"} {product.installment_price}
+            </div>
+          ) : (
+            <div className="text-[10px] leading-snug text-slate-500 sm:text-xs">
+              ou 12x de R$ {(price / 12).toFixed(2).replace(".", ",")} sem juros
+            </div>
+          )}
         </div>
 
         <button

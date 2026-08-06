@@ -34,6 +34,9 @@ type ProductFormState = {
   specs: string;
   product_url: string;
   image_urls: string;
+  installment_price: string;
+  installment_text: string;
+  youtube_url: string;
 };
 
 const EMPTY_FORM: ProductFormState = {
@@ -46,6 +49,9 @@ const EMPTY_FORM: ProductFormState = {
   specs: "",
   product_url: "",
   image_urls: "",
+  installment_price: "",
+  installment_text: "",
+  youtube_url: "",
 };
 
 function specsToText(specs?: Record<string, string>): string {
@@ -428,13 +434,51 @@ function ProductForm({
           specs: specsToText(initial.specs),
           product_url: initial.product_url ?? "",
           image_urls: (initial.image_urls ?? []).join("\n"),
+          installment_price: initial.installment_price ?? "",
+          installment_text: initial.installment_text ?? "",
+          youtube_url: initial.youtube_url ?? "",
         }
       : { ...EMPTY_FORM, category: categories[0]?.name ?? "" }
   );
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
 
   const set = (field: keyof ProductFormState, value: string) =>
     setForm((prev) => ({ ...prev, [field]: value }));
+
+  const uploadImage = async (file: File) => {
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("image", file);
+      const res = await fetch("/api/products/images/upload", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(
+          data && typeof data === "object" && "error" in data
+            ? String((data as { error: unknown }).error)
+            : `Erro no upload (${res.status})`
+        );
+      }
+      if (data && typeof data === "object" && "url" in data) {
+        set("image", String((data as { url: unknown }).url));
+      }
+    } catch (e) {
+      onError((e as Error).message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleFileChosen = (files: FileList | File[] | null) => {
+    if (!files || files.length === 0) return;
+    const file = files[0] as File;
+    uploadImage(file);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -453,6 +497,9 @@ function ProductForm({
         specs: textToSpecs(form.specs),
         product_url: form.product_url,
         image_urls: linesToArray(form.image_urls),
+        installment_price: form.installment_price,
+        installment_text: form.installment_text,
+        youtube_url: form.youtube_url,
       };
       if (initial) {
         await api(`/api/products/${initial.id}`, {
@@ -499,17 +546,18 @@ function ProductForm({
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="sm:col-span-2">
-          <label className={labelClass}>Nome *</label>
+          <label className={labelClass}>Nome do produto *</label>
           <input
             type="text"
             value={form.name}
             onChange={(e) => set("name", e.target.value)}
             className={inputClass}
-            placeholder="Ex.: Usado - Notebook Dell Latitude 7480"
+            placeholder="Ex.: Notebook Dell Latitude 7480 - 16GB - SSD 512GB"
           />
         </div>
+
         <div>
-          <label className={labelClass}>Preço *</label>
+          <label className={labelClass}>Preço à vista *</label>
           <input
             type="text"
             value={form.price}
@@ -532,58 +580,160 @@ function ProductForm({
             ))}
           </select>
         </div>
-        <div className="sm:col-span-2">
-          <label className={labelClass}>URL da imagem</label>
+
+        <div>
+          <label className={labelClass}>Preço em 12x</label>
           <input
             type="text"
-            value={form.image}
-            onChange={(e) => set("image", e.target.value)}
+            value={form.installment_price}
+            onChange={(e) => set("installment_price", e.target.value)}
             className={inputClass}
-            placeholder="https://..."
-          />
-        </div>
-        <div className="sm:col-span-2">
-          <label className={labelClass}>URL do anúncio original (Kabum)</label>
-          <input
-            type="text"
-            value={form.product_url}
-            onChange={(e) => set("product_url", e.target.value)}
-            className={inputClass}
-            placeholder="https://www.kabum.com.br/produto/..."
-          />
-        </div>
-        <div className="sm:col-span-2">
-          <label className={labelClass}>
-            Galeria de fotos (uma URL por linha, sem cortar)
-          </label>
-          <textarea
-            value={form.image_urls}
-            onChange={(e) => set("image_urls", e.target.value)}
-            rows={3}
-            className={inputClass}
-            placeholder={"https://.../foto1.jpg\nhttps://.../foto2.jpg\nhttps://.../foto3.jpg"}
+            placeholder="169,90"
           />
         </div>
         <div>
-          <label className={labelClass}>Selo (opcional)</label>
+          <label className={labelClass}>Texto do parcelamento</label>
+          <input
+            type="text"
+            value={form.installment_text}
+            onChange={(e) => set("installment_text", e.target.value)}
+            className={inputClass}
+            placeholder="ou 12x de"
+          />
+        </div>
+
+        <div>
+          <label className={labelClass}>Etiqueta / Selo</label>
           <input
             type="text"
             value={form.badge}
             onChange={(e) => set("badge", e.target.value)}
             className={inputClass}
-            placeholder="Ex.: Seminovo"
+            placeholder="Seminovo · Em promoção · Último estoque"
           />
         </div>
         <div>
-          <label className={labelClass}>Descrição</label>
+          <label className={labelClass}>Vídeo YouTube</label>
+          <input
+            type="text"
+            value={form.youtube_url}
+            onChange={(e) => set("youtube_url", e.target.value)}
+            className={inputClass}
+            placeholder="https://youtube.com/watch?v=..."
+          />
+        </div>
+
+        <div className="sm:col-span-2">
+          <label className={labelClass}>Foto do produto</label>
+          <div
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragOver(true);
+            }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragOver(false);
+              handleFileChosen(e.dataTransfer.files);
+            }}
+            className={`rounded-2xl border-2 border-dashed p-4 transition ${
+              dragOver
+                ? "border-[#E60012] bg-red-50"
+                : "border-slate-300 bg-slate-50 hover:bg-slate-100"
+            }`}
+          >
+            <div className="flex flex-col items-center gap-3 sm:flex-row">
+              <div className="h-36 w-36 flex-none overflow-hidden rounded-xl border border-slate-200 bg-white">
+                {form.image ? (
+                  <img
+                    src={form.image}
+                    alt={form.name || "preview"}
+                    className="h-full w-full object-contain"
+                    onError={(e) => {
+                      (e.currentTarget as HTMLImageElement).style.visibility = "hidden";
+                    }}
+                  />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-xs text-slate-400">
+                    sem foto
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-1 flex-col items-center gap-2 text-center sm:items-start sm:text-left">
+                <p className="text-sm font-semibold text-slate-700">
+                  Arraste uma foto aqui ou clique para escolher
+                </p>
+                <p className="text-xs text-slate-500">
+                  PNG, JPG ou WEBP (até 10 MB)
+                </p>
+                <div className="flex flex-wrap justify-center gap-2 sm:justify-start">
+                  <input
+                    id="product-image-file-input"
+                    type="file"
+                    accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
+                    className="hidden"
+                    onChange={(e) => handleFileChosen(e.target.files)}
+                  />
+                  <label
+                    htmlFor="product-image-file-input"
+                    className="inline-flex cursor-pointer items-center gap-1.5 rounded-full bg-[#E60012] px-4 py-2 text-xs font-bold text-white hover:bg-red-700"
+                  >
+                    <Upload size={14} />
+                    {uploading ? "Enviando..." : "Escolher foto"}
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => set("image", "")}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                  >
+                    Remover
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  value={form.image}
+                  onChange={(e) => set("image", e.target.value)}
+                  className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs outline-none focus:border-[#E60012]"
+                  placeholder="ou cole uma URL: https://..."
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="sm:col-span-2">
+          <label className={labelClass}>URL do anúncio original (opcional)</label>
+          <input
+            type="text"
+            value={form.product_url}
+            onChange={(e) => set("product_url", e.target.value)}
+            className={inputClass}
+            placeholder="Link do produto no site de origem"
+          />
+        </div>
+
+        <div className="sm:col-span-2">
+          <label className={labelClass}>Galeria (mais fotos, opcional)</label>
+          <textarea
+            value={form.image_urls}
+            onChange={(e) => set("image_urls", e.target.value)}
+            rows={2}
+            className={inputClass}
+            placeholder={"https://.../foto1.jpg\nhttps://.../foto2.jpg"}
+          />
+        </div>
+
+        <div className="sm:col-span-2">
+          <label className={labelClass}>Descrição curta</label>
           <input
             type="text"
             value={form.description}
             onChange={(e) => set("description", e.target.value)}
             className={inputClass}
-            placeholder="Descrição curta do produto"
+            placeholder="Ex.: Revisado, com garantia e nota fiscal."
           />
         </div>
+
         <div className="sm:col-span-2">
           <label className={labelClass}>
             Especificações (uma por linha, no formato{" "}

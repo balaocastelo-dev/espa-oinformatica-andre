@@ -7,7 +7,7 @@ import {
   type Category,
 } from "@/lib/store";
 import { slugify, uniqueSlug } from "@/lib/slug";
-import { normalizePrice } from "@/lib/format";
+import { normalizePrice, youtubeIdFromUrl } from "@/lib/format";
 import type { Product } from "@/lib/format";
 
 export async function GET() {
@@ -67,6 +67,29 @@ export async function POST(request: NextRequest) {
   const slug = uniqueSlug(slugify(name), taken);
   const category = String(body.category ?? "").trim() || "Outras Marcas";
 
+  let installment_price: string | undefined;
+  const installment_price_raw = body.installment_price;
+  if (
+    installment_price_raw !== undefined &&
+    installment_price_raw !== null &&
+    String(installment_price_raw).trim() !== ""
+  ) {
+    try {
+      installment_price = normalizePrice(installment_price_raw);
+    } catch {
+      return NextResponse.json({ error: "Valor do parcelamento inválido" }, { status: 400 });
+    }
+  }
+
+  const installment_text_raw = String(body.installment_text ?? "").trim();
+  const installment_text = installment_text_raw || undefined;
+
+  const youtube_url_raw = String(body.youtube_url ?? "").trim();
+  const youtube_id = youtubeIdFromUrl(youtube_url_raw);
+  const youtube_url = youtube_id
+    ? `https://www.youtube.com/watch?v=${youtube_id}`
+    : undefined;
+
   const product: Product = {
     id: slug,
     slug,
@@ -82,6 +105,9 @@ export async function POST(request: NextRequest) {
         ? body.image_urls.map((u: unknown) => String(u).trim()).filter(Boolean)
         : undefined,
     product_url,
+    installment_price,
+    installment_text,
+    youtube_url,
   };
 
   await ensureCategory(category);

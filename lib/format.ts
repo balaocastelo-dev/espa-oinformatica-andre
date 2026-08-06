@@ -10,6 +10,9 @@ export interface Product {
   badge?: string;
   image_urls?: string[];
   product_url?: string;
+  installment_price?: string;
+  installment_text?: string;
+  youtube_url?: string;
 }
 
 export function parsePriceToNumber(price: string): number {
@@ -42,4 +45,18 @@ export function normalizePrice(input: string | number): string {
     throw new Error("Preço inválido");
   }
   return formatPrice(value);
+}
+
+export function youtubeIdFromUrl(input: string | undefined): string | null {
+  if (!input) return null;
+  const raw = String(input).trim();
+  if (!raw) return null;
+  const shortsMatch = raw.match(/youtube\.com\/shorts\/([A-Za-z0-9_-]{6,})/);
+  if (shortsMatch) return shortsMatch[1];
+  const embedMatch = raw.match(/youtube\.com\/embed\/([A-Za-z0-9_-]{6,})/);
+  if (embedMatch) return embedMatch[1];
+  const watchMatch = raw.match(/(?:youtube\.com\/(?:watch\?v=)|youtu\.be\/)([A-Za-z0-9_-]{6,})/);
+  if (watchMatch) return watchMatch[1];
+  const maybeId = /^[A-Za-z0-9_-]{6,}$/.test(raw) ? raw : null;
+  return maybeId;
 }

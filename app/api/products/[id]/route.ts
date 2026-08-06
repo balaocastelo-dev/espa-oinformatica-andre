@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readProducts, writeProducts } from "@/lib/store";
-import { normalizePrice } from "@/lib/format";
+import { normalizePrice, youtubeIdFromUrl } from "@/lib/format";
 import type { Product } from "@/lib/format";
 
 type Params = { params: Promise<{ id: string }> };
@@ -26,31 +26,65 @@ export async function PUT(request: NextRequest, props: Params) {
     return NextResponse.json({ error: "Preço inválido" }, { status: 400 });
   }
 
+  const prev = products[index];
+
+  let installment_price: string | undefined = prev.installment_price;
+  if (body.installment_price !== undefined) {
+    const raw = String(body.installment_price).trim();
+    if (raw === "") {
+      installment_price = undefined;
+    } else {
+      try {
+        installment_price = normalizePrice(raw);
+      } catch {
+        return NextResponse.json(
+          { error: "Valor do parcelamento inválido" },
+          { status: 400 }
+        );
+      }
+    }
+  }
+
+  const installment_text =
+    body.installment_text !== undefined
+      ? String(body.installment_text).trim() || undefined
+      : prev.installment_text;
+
+  let youtube_url: string | undefined = prev.youtube_url;
+  if (body.youtube_url !== undefined) {
+    const raw = String(body.youtube_url).trim();
+    const yid = youtubeIdFromUrl(raw);
+    youtube_url = yid ? `https://www.youtube.com/watch?v=${yid}` : undefined;
+  }
+
   const updated: Product = {
-    ...products[index],
+    ...prev,
     name,
     price,
-    image: String(body.image ?? products[index].image).trim() || "/logo.png",
-    category: String(body.category ?? products[index].category).trim() || "Outras Marcas",
-    badge: body.badge !== undefined ? String(body.badge).trim() || undefined : products[index].badge,
+    image: String(body.image ?? prev.image).trim() || "/logo.png",
+    category: String(body.category ?? prev.category).trim() || "Outras Marcas",
+    badge: body.badge !== undefined ? String(body.badge).trim() || undefined : prev.badge,
     description:
       body.description !== undefined
         ? String(body.description).trim() || undefined
-        : products[index].description,
+        : prev.description,
     specs:
       body.specs !== undefined && typeof body.specs === "object"
         ? body.specs
-        : products[index].specs,
+        : prev.specs,
     image_urls:
       body.image_urls !== undefined
         ? Array.isArray(body.image_urls)
           ? body.image_urls.map((u: unknown) => String(u).trim()).filter(Boolean)
           : undefined
-        : products[index].image_urls,
+        : prev.image_urls,
     product_url:
       body.product_url !== undefined
         ? String(body.product_url).trim() || undefined
-        : products[index].product_url,
+        : prev.product_url,
+    installment_price,
+    installment_text,
+    youtube_url,
   };
 
   products[index] = updated;
