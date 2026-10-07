@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import {
   ArrowLeft,
+  ArrowRight,
   Building2,
   ExternalLink,
   FileUp,
@@ -15,6 +16,7 @@ import {
   Plus,
   Save,
   Search,
+  Star,
   ShoppingBag,
   Trash2,
   Upload,
@@ -33,16 +35,16 @@ import {
 type Tab = "orders" | "products" | "categories" | "company";
 type CompanyTextField = Exclude<keyof CompanySettings, "logoPath" | "stats" | "services">;
 
+const MAX_PRODUCT_PHOTOS = 12;
+
 type ProductFormState = {
   name: string;
   price: string;
-  image: string;
   category: string;
   badge: string;
   description: string;
   specs: string;
   product_url: string;
-  image_urls: string;
   installment_price: string;
   installment_text: string;
   youtube_url: string;
@@ -51,13 +53,11 @@ type ProductFormState = {
 const EMPTY_FORM: ProductFormState = {
   name: "",
   price: "",
-  image: "",
   category: "",
   badge: "",
   description: "",
   specs: "",
   product_url: "",
-  image_urls: "",
   installment_price: "",
   installment_text: "",
   youtube_url: "",
@@ -80,13 +80,6 @@ function textToSpecs(text: string): Record<string, string> {
     if (key && value) specs[key] = value;
   }
   return specs;
-}
-
-function linesToArray(text: string): string[] {
-  return text
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
 }
 
 /**
@@ -684,76 +677,140 @@ function ProductForm({
       ? {
           name: initial.name,
           price: initial.price,
-          image: initial.image,
           category: initial.category,
           badge: initial.badge ?? "",
           description: initial.description ?? "",
           specs: specsToText(initial.specs),
           product_url: initial.product_url ?? "",
-          image_urls: (initial.image_urls ?? []).join("\n"),
           installment_price: initial.installment_price ?? "",
           installment_text: initial.installment_text ?? "",
           youtube_url: initial.youtube_url ?? "",
         }
       : { ...EMPTY_FORM, category: categories[0]?.name ?? "" }
   );
+  // Fotos do produto, na ordem em que aparecem na loja. A primeira é a capa.
+  const [photos, setPhotos] = useState<string[]>(() => {
+    if (!initial) return [];
+    const list = (initial.image_urls ?? []).map((u) => u.trim()).filter(Boolean);
+    const cover = initial.image?.trim();
+    if (cover && cover !== "/logo.png" && !list.includes(cover)) list.unshift(cover);
+    return list;
+  });
+  const [urlDraft, setUrlDraft] = useState("");
   const [saving, setSaving] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  const [uploading, setUploading] = useState<{ done: number; total: number } | null>(
+    null
+  );
   const [dragOver, setDragOver] = useState(false);
 
   const set = (field: keyof ProductFormState, value: string) =>
     setForm((prev) => ({ ...prev, [field]: value }));
 
-  const uploadImage = async (file: File) => {
-    setUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append("image", await shrinkImage(file, 1600));
-      const res = await fetch("/api/products/images/upload", {
-        method: "POST",
-        body: formData,
-      });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) {
-        throw new Error(
-          data && typeof data === "object" && "error" in data
-            ? String((data as { error: unknown }).error)
-            : `Erro no upload (${res.status})`
-        );
-      }
-      if (data && typeof data === "object" && "url" in data) {
-        set("image", String((data as { url: unknown }).url));
-      }
-    } catch (e) {
-      onError((e as Error).message);
-    } finally {
-      setUploading(false);
+  const addPhoto = (url: string) =>
+    setPhotos((prev) =>
+      prev.includes(url) || prev.length >= MAX_PRODUCT_PHOTOS ? prev : [...prev, url]
+    );
+
+  const removePhoto = (index: number) =>
+    setPhotos((prev) => prev.filter((_, i) => i !== index));
+
+  const movePhoto = (index: number, to: number) =>
+    setPhotos((prev) => {
+      if (to < 0 || to >= prev.length) return prev;
+      const next = prev.slice();
+      const [item] = next.splice(index, 1);
+      next.splice(to, 0, item);
+      return next;
+    });
+
+  const addUrlDraft = () => {
+    const urls = urlDraft
+      .split(/\s+/)
+      .map((u) => u.trim())
+      .filter(Boolean);
+    if (urls.length === 0) return;
+    const invalid = urls.find((u) => !/^https?:\/\//i.test(u) && !u.startsWith("/"));
+    if (invalid) return onError(`Endereço de imagem inválido: ${invalid}`);
+    if (photos.length + urls.length > MAX_PRODUCT_PHOTOS) {
+      return onError(`Cada produto pode ter no máximo ${MAX_PRODUCT_PHOTOS} fotos`);
     }
+    urls.forEach(addPhoto);
+    setUrlDraft("");
   };
 
-  const handleFileChosen = (files: FileList | File[] | null) => {
-    if (!files || files.length === 0) return;
-    const file = files[0] as File;
-    uploadImage(file);
+  const uploadOne = async (file: File): Promise<string> => {
+    const formData = new FormData();
+    formData.append("image", await shrinkImage(file, 1600));
+    const res = await fetch("/api/products/images/upload", {
+      method: "POST",
+      body: formData,
+    });
+    const data = await res.json().catch(() => null);
+    if (res.status === 401) {
+      window.location.reload();
+      throw new Error("Sessão expirada. Faça login novamente.");
+    }
+    if (!res.ok || !data || typeof data !== "object" || !("url" in data)) {
+      throw new Error(
+        data && typeof data === "object" && "error" in data
+          ? String((data as { error: unknown }).error)
+          : `Erro no upload (${res.status})`
+      );
+    }
+    return String((data as { url: unknown }).url);
+  };
+
+  // Envia várias fotos, uma por vez, e vai acrescentando à lista.
+  const handleFilesChosen = async (files: FileList | File[] | null) => {
+    if (!files || files.length === 0 || uploading) return;
+    const chosen = Array.from(files).filter((f) => f.type.startsWith("image/"));
+    if (chosen.length === 0) return onError("Escolha arquivos de imagem (PNG, JPG ou WEBP)");
+
+    const room = MAX_PRODUCT_PHOTOS - photos.length;
+    if (room <= 0) {
+      return onError(`Cada produto pode ter no máximo ${MAX_PRODUCT_PHOTOS} fotos`);
+    }
+    const queue = chosen.slice(0, room);
+    const failures: string[] = [];
+
+    setUploading({ done: 0, total: queue.length });
+    for (let i = 0; i < queue.length; i++) {
+      try {
+        addPhoto(await uploadOne(queue[i]));
+      } catch (e) {
+        failures.push(`${queue[i].name}: ${(e as Error).message}`);
+      }
+      setUploading({ done: i + 1, total: queue.length });
+    }
+    setUploading(null);
+
+    if (failures.length > 0) {
+      onError(`Não foi possível enviar ${failures.length} foto(s). ${failures[0]}`);
+    } else if (chosen.length > queue.length) {
+      onError(
+        `Só ${queue.length} foto(s) foram enviadas: o limite é ${MAX_PRODUCT_PHOTOS} por produto`
+      );
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.name.trim()) return onError("Informe o nome do produto");
     if (!form.price.trim()) return onError("Informe o preço");
+    if (uploading) return onError("Aguarde o envio das fotos terminar");
 
     setSaving(true);
     try {
       const payload = {
         name: form.name,
         price: form.price,
-        image: form.image,
+        image: photos[0] ?? "",
         category: form.category,
         badge: form.badge,
         description: form.description,
         specs: textToSpecs(form.specs),
         product_url: form.product_url,
-        image_urls: linesToArray(form.image_urls),
+        image_urls: photos.length > 1 ? photos : [],
         installment_price: form.installment_price,
         installment_text: form.installment_text,
         youtube_url: form.youtube_url,
@@ -881,7 +938,12 @@ function ProductForm({
         </div>
 
         <div className="sm:col-span-2">
-          <label className={labelClass}>Foto do produto</label>
+          <label className={labelClass}>
+            Fotos do produto{" "}
+            <span className="font-medium normal-case tracking-normal text-slate-400">
+              ({photos.length} de {MAX_PRODUCT_PHOTOS})
+            </span>
+          </label>
           <div
             onDragOver={(e) => {
               e.preventDefault();
@@ -891,69 +953,139 @@ function ProductForm({
             onDrop={(e) => {
               e.preventDefault();
               setDragOver(false);
-              handleFileChosen(e.dataTransfer.files);
+              handleFilesChosen(e.dataTransfer.files);
             }}
             className={`rounded-2xl border-2 border-dashed p-4 transition ${
-              dragOver
-                ? "border-[#E60012] bg-red-50"
-                : "border-slate-300 bg-slate-50 hover:bg-slate-100"
+              dragOver ? "border-[#E60012] bg-red-50" : "border-slate-300 bg-slate-50"
             }`}
           >
-            <div className="flex flex-col items-center gap-3 sm:flex-row">
-              <div className="h-36 w-36 flex-none overflow-hidden rounded-xl border border-slate-200 bg-white">
-                {form.image ? (
-                  <img
-                    src={form.image}
-                    alt={form.name || "preview"}
-                    className="h-full w-full object-contain"
-                    onError={(e) => {
-                      (e.currentTarget as HTMLImageElement).style.visibility = "hidden";
-                    }}
-                  />
-                ) : (
-                  <div className="flex h-full w-full items-center justify-center text-xs text-slate-400">
-                    sem foto
-                  </div>
-                )}
-              </div>
-              <div className="flex flex-1 flex-col items-center gap-2 text-center sm:items-start sm:text-left">
-                <p className="text-sm font-semibold text-slate-700">
-                  Arraste uma foto aqui ou clique para escolher
-                </p>
-                <p className="text-xs text-slate-500">
-                  PNG, JPG ou WEBP (fotos grandes são reduzidas automaticamente)
-                </p>
-                <div className="flex flex-wrap justify-center gap-2 sm:justify-start">
-                  <input
-                    id="product-image-file-input"
-                    type="file"
-                    accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
-                    className="hidden"
-                    onChange={(e) => handleFileChosen(e.target.files)}
-                  />
-                  <label
-                    htmlFor="product-image-file-input"
-                    className="inline-flex cursor-pointer items-center gap-1.5 rounded-full bg-[#E60012] px-4 py-2 text-xs font-bold text-white hover:bg-red-700"
+            {photos.length > 0 && (
+              <ul className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-5">
+                {photos.map((src, index) => (
+                  <li
+                    key={src}
+                    className={`overflow-hidden rounded-xl border bg-white ${
+                      index === 0 ? "border-[#E60012]" : "border-slate-200"
+                    }`}
                   >
-                    <Upload size={14} />
-                    {uploading ? "Enviando..." : "Escolher foto"}
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => set("image", "")}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100"
-                  >
-                    Remover
-                  </button>
-                </div>
-                <input
-                  type="text"
-                  value={form.image}
-                  onChange={(e) => set("image", e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs outline-none focus:border-[#E60012]"
-                  placeholder="ou cole uma URL: https://..."
-                />
-              </div>
+                    <div className="relative aspect-square">
+                      <img
+                        src={src}
+                        alt={`Foto ${index + 1}`}
+                        className="h-full w-full object-contain p-1"
+                      />
+                      {index === 0 && (
+                        <span className="absolute left-1.5 top-1.5 rounded-full bg-[#E60012] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                          Capa
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => removePhoto(index)}
+                        aria-label={`Remover foto ${index + 1}`}
+                        title="Remover"
+                        className="absolute right-1.5 top-1.5 rounded-full bg-white/95 p-1.5 text-slate-600 shadow hover:text-red-600"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                    <div className="flex items-center justify-between border-t border-slate-100 px-1 py-1">
+                      <button
+                        type="button"
+                        onClick={() => movePhoto(index, index - 1)}
+                        disabled={index === 0}
+                        aria-label={`Mover foto ${index + 1} para antes`}
+                        title="Mover para antes"
+                        className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 disabled:opacity-30"
+                      >
+                        <ArrowLeft size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => movePhoto(index, 0)}
+                        disabled={index === 0}
+                        aria-label={`Usar foto ${index + 1} como capa`}
+                        title="Usar como capa"
+                        className="inline-flex items-center gap-1 rounded-lg px-1.5 py-1 text-[11px] font-semibold text-slate-500 hover:bg-slate-100 disabled:text-[#E60012] disabled:opacity-100"
+                      >
+                        <Star size={12} fill={index === 0 ? "currentColor" : "none"} />
+                        Capa
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => movePhoto(index, index + 1)}
+                        disabled={index === photos.length - 1}
+                        aria-label={`Mover foto ${index + 1} para depois`}
+                        title="Mover para depois"
+                        className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 disabled:opacity-30"
+                      >
+                        <ArrowRight size={14} />
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <div className="flex flex-col items-center gap-2 text-center">
+              <p className="text-sm font-semibold text-slate-700">
+                Arraste as fotos aqui ou clique para escolher várias de uma vez
+              </p>
+              <p className="text-xs text-slate-500">
+                PNG, JPG ou WEBP. A primeira foto é a capa; use as setas para
+                mudar a ordem.
+              </p>
+              <input
+                id="product-image-file-input"
+                type="file"
+                multiple
+                accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
+                className="hidden"
+                disabled={Boolean(uploading)}
+                onChange={(e) => {
+                  handleFilesChosen(e.target.files);
+                  e.target.value = "";
+                }}
+              />
+              <label
+                htmlFor="product-image-file-input"
+                aria-disabled={Boolean(uploading)}
+                className={`inline-flex items-center gap-1.5 rounded-full bg-[#E60012] px-4 py-2 text-xs font-bold text-white ${
+                  uploading ? "cursor-wait opacity-70" : "cursor-pointer hover:bg-red-700"
+                }`}
+              >
+                <Upload size={14} />
+                {uploading
+                  ? `Enviando ${Math.min(uploading.done + 1, uploading.total)} de ${uploading.total}...`
+                  : photos.length > 0
+                    ? "Adicionar mais fotos"
+                    : "Escolher fotos"}
+              </label>
+            </div>
+
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+              <input
+                type="text"
+                value={urlDraft}
+                onChange={(e) => setUrlDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addUrlDraft();
+                  }
+                }}
+                aria-label="Endereço (URL) de uma foto"
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs outline-none focus:border-[#E60012]"
+                placeholder="ou cole o endereço de uma foto: https://..."
+              />
+              <button
+                type="button"
+                onClick={addUrlDraft}
+                disabled={!urlDraft.trim()}
+                className="shrink-0 rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+              >
+                Adicionar
+              </button>
             </div>
           </div>
         </div>
@@ -966,17 +1098,6 @@ function ProductForm({
             onChange={(e) => set("product_url", e.target.value)}
             className={inputClass}
             placeholder="Link do produto no site de origem"
-          />
-        </div>
-
-        <div className="sm:col-span-2">
-          <label className={labelClass}>Galeria (mais fotos, opcional)</label>
-          <textarea
-            value={form.image_urls}
-            onChange={(e) => set("image_urls", e.target.value)}
-            rows={2}
-            className={inputClass}
-            placeholder={"https://.../foto1.jpg\nhttps://.../foto2.jpg"}
           />
         </div>
 
@@ -1016,10 +1137,16 @@ function ProductForm({
         </button>
         <button
           type="submit"
-          disabled={saving}
+          disabled={saving || Boolean(uploading)}
           className="min-h-11 rounded-full bg-[#E60012] px-6 py-2.5 text-sm font-bold text-white hover:bg-red-700 disabled:opacity-60 sm:w-auto"
         >
-          {saving ? "Salvando..." : initial ? "Salvar alterações" : "Criar produto"}
+          {saving
+            ? "Salvando..."
+            : uploading
+              ? "Enviando fotos..."
+              : initial
+                ? "Salvar alterações"
+                : "Criar produto"}
         </button>
       </div>
     </form>

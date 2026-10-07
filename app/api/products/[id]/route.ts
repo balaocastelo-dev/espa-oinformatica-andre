@@ -78,7 +78,7 @@ export async function PUT(request: NextRequest, props: Params) {
     image_urls:
       body.image_urls !== undefined
         ? Array.isArray(body.image_urls)
-          ? body.image_urls.map((u: unknown) => String(u).trim()).filter(Boolean)
+          ? body.image_urls.map((u: unknown) => String(u).trim()).filter(Boolean).slice(0, 12)
           : undefined
         : prev.image_urls,
     product_url:

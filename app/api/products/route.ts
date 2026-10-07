@@ -105,7 +105,7 @@ export async function POST(request: NextRequest) {
     specs: body.specs && typeof body.specs === "object" ? body.specs : undefined,
     image_urls:
       Array.isArray(body.image_urls)
-        ? body.image_urls.map((u: unknown) => String(u).trim()).filter(Boolean)
+        ? body.image_urls.map((u: unknown) => String(u).trim()).filter(Boolean).slice(0, 12)
         : undefined,
     product_url,
     installment_price,
