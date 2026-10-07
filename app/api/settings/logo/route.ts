@@ -1,41 +1,14 @@
-import { promises as fs } from "node:fs";
-import path from "node:path";
 import { NextRequest, NextResponse } from "next/server";
+import { requireAdmin } from "@/lib/auth";
 import { readCompanySettings, writeCompanySettings } from "@/lib/company";
+import { UploadError, saveImage } from "@/lib/uploads";
 
 export const runtime = "nodejs";
 
-const EXTENSIONS: Record<string, string> = {
-  "image/png": "png",
-  "image/jpeg": "jpg",
-  "image/webp": "webp",
-};
-
-function extensionFromName(name: string): string | undefined {
-  const extension = name.toLowerCase().split(".").pop();
-  return extension === "png" || extension === "jpg" || extension === "jpeg" || extension === "webp"
-    ? extension === "jpeg"
-      ? "jpg"
-      : extension
-    : undefined;
-}
-
-function hasValidSignature(extension: string, bytes: Uint8Array): boolean {
-  if (extension === "png") {
-    return bytes.length >= 8 && bytes.slice(0, 8).every((value, index) => value === [137, 80, 78, 71, 13, 10, 26, 10][index]);
-  }
-  if (extension === "jpg") {
-    return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
-  }
-  return (
-    extension === "webp" &&
-    bytes.length >= 12 &&
-    String.fromCharCode(...bytes.slice(0, 4)) === "RIFF" &&
-    String.fromCharCode(...bytes.slice(8, 12)) === "WEBP"
-  );
-}
-
 export async function POST(request: NextRequest) {
+  const denied = requireAdmin(request);
+  if (denied) return denied;
+
   let file: File | null = null;
   try {
     const formData = await request.formData();
@@ -52,62 +25,26 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Selecione um arquivo de logo" }, { status: 400 });
   }
 
-  const extension = EXTENSIONS[file.type] ?? extensionFromName(file.name);
-  if (!extension) {
+  try {
+    const saved = await saveImage(file, { prefix: "logo", maxBytes: 5 * 1024 * 1024 });
+    const current = await readCompanySettings();
+    const settings = { ...current, logoPath: saved.url };
+    const persisted = await writeCompanySettings(settings);
+    return NextResponse.json({
+      ...settings,
+      _meta: {
+        storage_persisted: persisted,
+        storage_mode: persisted ? "disk" : "memory_only",
+      },
+    });
+  } catch (error) {
+    if (error instanceof UploadError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+    console.error("Erro ao salvar logo:", error);
     return NextResponse.json(
-      { error: "Formato inválido. Use PNG, JPG ou WEBP" },
-      { status: 400 }
+      { error: "Não foi possível salvar o logo. Tente novamente." },
+      { status: 500 }
     );
   }
-
-  if (file.size > 5 * 1024 * 1024) {
-    return NextResponse.json({ error: "O logo deve ter no máximo 5 MB" }, { status: 400 });
-  }
-
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  if (!hasValidSignature(extension, bytes)) {
-    return NextResponse.json({ error: "O arquivo selecionado não é uma imagem válida" }, { status: 400 });
-  }
-
-  const fileName = `logo.${extension}`;
-  const publicDir = path.join(process.cwd(), "public");
-  let logoPath = `/${fileName}`;
-  let persistedToDisk = false;
-
-  try {
-    await fs.mkdir(publicDir, { recursive: true });
-    await fs.writeFile(path.join(publicDir, fileName), Buffer.from(bytes));
-    persistedToDisk = true;
-  } catch (writeErr) {
-    const tmpCandidates = ["/tmp", process.env.TMPDIR, process.env.TEMP].filter(Boolean) as string[];
-    for (const candidate of tmpCandidates) {
-      try {
-        await fs.mkdir(candidate, { recursive: true });
-        await fs.writeFile(path.join(candidate, fileName), Buffer.from(bytes));
-        persistedToDisk = true;
-        logoPath = `/_next/image?url=/_espaco_logo_tmp_${fileName}`;
-        break;
-      } catch {
-        /* tenta próximo candidato */
-      }
-    }
-    if (!persistedToDisk) {
-      console.warn("Nao foi possivel salvar logo no disco (read-only FS). Mantendo logo em memoria apenas.");
-    }
-  }
-
-  const current = await readCompanySettings();
-  const settings = { ...current, logoPath: persistedToDisk ? logoPath : current.logoPath };
-  const savedSettings = await writeCompanySettings(settings);
-
-  return NextResponse.json({
-    ...settings,
-    _meta: {
-      storage_persisted: persistedToDisk && savedSettings,
-      storage_mode: persistedToDisk ? "disk" : "memory_only",
-      note: persistedToDisk
-        ? undefined
-        : "Nao foi possivel gravar o logo no disco (read-only FS, ex. Vercel). Use o logo padrão ou conecte um storage externo.",
-    },
-  });
 }

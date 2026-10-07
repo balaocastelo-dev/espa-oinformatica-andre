@@ -22,21 +22,122 @@ export default function CartPage() {
   const company = useCompany();
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
-  const [sent, setSent] = useState(false);
+  const [note, setNote] = useState("");
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<{ id: number | null; whatsappUrl: string } | null>(
+    null
+  );
 
-  const buildWhatsAppMessage = () => {
+  // Usado só se o registro do pedido falhar: o cliente não fica sem atendimento.
+  const fallbackWhatsAppUrl = () => {
     const lines = items.map(
       (item, index) =>
         `${index + 1}. ${item.name}\n   Qtd: ${item.quantity} x ${item.price}`
     );
-    const intro = customerName
-      ? `Olá! Meu nome é ${customerName} e gostaria de finalizar meu pedido:\n\n`
-      : "Olá! Gostaria de finalizar meu pedido:\n\n";
-    const footer = `\n\nTotal: ${formatPrice(cartTotal)}`;
-    return encodeURIComponent(intro + lines.join("\n\n") + footer);
+    const text =
+      `Olá! Meu nome é ${customerName.trim()} e gostaria de finalizar meu pedido:\n\n` +
+      lines.join("\n\n") +
+      `\n\nTotal: ${formatPrice(cartTotal)}\nTelefone: ${customerPhone.trim()}`;
+    return `https://wa.me/${company.whatsappNumber}?text=${encodeURIComponent(text)}`;
   };
 
-  const whatsappUrl = `https://wa.me/${company.whatsappNumber}?text=${buildWhatsAppMessage()}`;
+  const submitOrder = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (sending) return;
+    setError(null);
+
+    if (customerName.trim().length < 2) {
+      setError("Informe seu nome para finalizar o pedido.");
+      return;
+    }
+    const digits = customerPhone.replace(/\D/g, "");
+    if (digits.length < 10 || digits.length > 13) {
+      setError("Informe seu WhatsApp com DDD. Ex.: (19) 99999-9999");
+      return;
+    }
+
+    // Abre a aba já no clique (antes do await) para o navegador não bloquear.
+    const popup = window.open("about:blank", "_blank");
+    setSending(true);
+
+    let whatsappUrl = "";
+    let orderId: number | null = null;
+    try {
+      const res = await fetch("/api/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customerName,
+          customerPhone,
+          note,
+          items: items.map((item) => ({ id: item.id, quantity: item.quantity })),
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (res.status === 400 && data?.error) {
+        popup?.close();
+        setError(String(data.error));
+        setSending(false);
+        return;
+      }
+      if (res.ok && data?.whatsappUrl) {
+        whatsappUrl = String(data.whatsappUrl);
+        orderId = Number(data.id) || null;
+      }
+    } catch {
+      /* sem conexão com o servidor: segue pelo WhatsApp mesmo assim */
+    }
+
+    if (!whatsappUrl) whatsappUrl = fallbackWhatsAppUrl();
+
+    if (popup && !popup.closed) {
+      popup.location.href = whatsappUrl;
+    } else {
+      window.location.href = whatsappUrl;
+    }
+
+    setDone({ id: orderId, whatsappUrl });
+    clearCart();
+    setSending(false);
+  };
+
+  if (done) {
+    return (
+      <div className="mx-auto max-w-3xl px-4 py-20">
+        <div className="rounded-3xl border border-slate-200 bg-white p-8 text-center sm:p-12">
+          <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
+            <CheckCircle2 size={40} />
+          </div>
+          <h1 className="mt-5 text-2xl font-black">
+            {done.id ? `Pedido #${done.id} registrado!` : "Pedido preparado!"}
+          </h1>
+          <p className="mt-2 text-sm text-slate-500">
+            Para concluir, envie a mensagem que abrimos no WhatsApp. Nossa equipe
+            confirma disponibilidade, pagamento e retirada/entrega por lá.
+          </p>
+          <a
+            href={done.whatsappUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-6 inline-flex items-center gap-2 rounded-full bg-[#25D366] px-6 py-3 text-sm font-bold text-white"
+          >
+            <MessageCircle size={18} />
+            Abrir o WhatsApp novamente
+          </a>
+          <div>
+            <Link
+              href="/"
+              className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-[#E60012]"
+            >
+              Voltar ao catálogo
+              <ArrowRight size={16} />
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (items.length === 0) {
     return (
@@ -178,40 +279,53 @@ export default function CartPage() {
             </div>
           </div>
 
-          <div className="mt-5 space-y-3">
-            <input
-              type="text"
-              value={customerName}
-              onChange={(e) => setCustomerName(e.target.value)}
-              placeholder="Seu nome (opcional)"
-              className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-[#E60012]"
-            />
-            <input
-              type="tel"
-              value={customerPhone}
-              onChange={(e) => setCustomerPhone(e.target.value)}
-              placeholder="Seu telefone (opcional)"
-              className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-[#E60012]"
-            />
-          </div>
+          <form onSubmit={submitOrder} noValidate>
+            <div className="mt-5 space-y-3">
+              <input
+                type="text"
+                value={customerName}
+                onChange={(e) => setCustomerName(e.target.value)}
+                placeholder="Seu nome"
+                autoComplete="name"
+                maxLength={80}
+                required
+                className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-[#E60012]"
+              />
+              <input
+                type="tel"
+                value={customerPhone}
+                onChange={(e) => setCustomerPhone(e.target.value)}
+                placeholder="Seu WhatsApp com DDD"
+                autoComplete="tel"
+                maxLength={30}
+                required
+                className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-[#E60012]"
+              />
+              <textarea
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Observação (opcional)"
+                rows={2}
+                maxLength={500}
+                className="w-full resize-none rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-[#E60012]"
+              />
+            </div>
 
-          <a
-            href={whatsappUrl}
-            target="_blank"
-            rel="noreferrer"
-            onClick={() => setSent(true)}
-            className="balao-cta-pulse mt-4 flex w-full items-center justify-center gap-2 rounded-full bg-[#25D366] px-6 py-3.5 text-sm font-bold text-white"
-          >
-            <MessageCircle size={18} />
-            Finalizar pedido no WhatsApp
-          </a>
+            {error && (
+              <p role="alert" className="mt-3 rounded-xl bg-red-50 px-4 py-2.5 text-sm font-medium text-red-700">
+                {error}
+              </p>
+            )}
 
-          {sent && (
-            <p className="mt-3 flex items-center justify-center gap-1.5 text-center text-xs text-emerald-600">
-              <CheckCircle2 size={14} />
-              Pedido preparado! Finalize a conversa no WhatsApp.
-            </p>
-          )}
+            <button
+              type="submit"
+              disabled={sending}
+              className="balao-cta-pulse mt-4 flex w-full items-center justify-center gap-2 rounded-full bg-[#25D366] px-6 py-3.5 text-sm font-bold text-white disabled:opacity-60"
+            >
+              <MessageCircle size={18} />
+              {sending ? "Registrando pedido..." : "Finalizar pedido no WhatsApp"}
+            </button>
+          </form>
 
           <p className="mt-4 text-center text-xs text-slate-400">
             Confirmação de disponibilidade, valores e retirada/entrega feita

@@ -1,3 +1,4 @@
+import { requireAdmin } from "@/lib/auth";
 import { NextRequest, NextResponse } from "next/server";
 import {
   readProducts,
@@ -109,6 +110,8 @@ async function ensureCategories(categoryNames: string[]): Promise<void> {
 }
 
 export async function POST(request: NextRequest) {
+  const denied = requireAdmin(request);
+  if (denied) return denied;
   try {
     const body = await request.json().catch(() => null);
     if (!body) {

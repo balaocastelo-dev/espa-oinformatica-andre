@@ -1,3 +1,4 @@
+import { requireAdmin } from "@/lib/auth";
 import { NextRequest, NextResponse } from "next/server";
 import { readCategories, writeCategories } from "@/lib/store";
 import { slugify } from "@/lib/slug";
@@ -9,6 +10,8 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const denied = requireAdmin(request);
+  if (denied) return denied;
   const body = await request.json();
   const name = String(body.name ?? "").trim();
   if (!name) {

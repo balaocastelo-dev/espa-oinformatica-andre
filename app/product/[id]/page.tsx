@@ -16,6 +16,7 @@ import ProductCard from "@/components/ProductCard";
 import ProductActions from "@/components/ProductActions";
 import ProductGallery from "@/components/ProductGallery";
 import { readCompanySettings } from "@/lib/company";
+import { absoluteUrl, siteUrl } from "@/lib/site";
 
 export async function generateMetadata(props: {
   params: Promise<{ id: string }>;
@@ -26,6 +27,13 @@ export async function generateMetadata(props: {
   return {
     title: product.name,
     description: product.description,
+    alternates: { canonical: `/product/${product.slug}` },
+    openGraph: {
+      type: "website",
+      title: product.name,
+      description: product.description,
+      images: [product.image],
+    },
   };
 }
 
@@ -38,12 +46,43 @@ export default async function ProductPage(props: {
 
   const company = await readCompanySettings();
   const price = parsePriceToNumber(product.price);
+  const base = await siteUrl();
+
+  const productJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Product",
+    name: product.name,
+    description: product.description,
+    image: (product.image_urls?.length ? product.image_urls : [product.image]).map(
+      (src) => absoluteUrl(base, src)
+    ),
+    category: product.category,
+    offers: {
+      "@type": "Offer",
+      url: `${base}/product/${product.slug}`,
+      priceCurrency: "BRL",
+      price: price.toFixed(2),
+      availability: "https://schema.org/InStock",
+      itemCondition: /novo/i.test(product.badge ?? "") && !/semi/i.test(product.badge ?? "")
+        ? "https://schema.org/NewCondition"
+        : product.badge
+          ? "https://schema.org/UsedCondition"
+          : "https://schema.org/NewCondition",
+      seller: { "@type": "Organization", name: company.name },
+    },
+  };
   const related = (await getProductsByCategory(product.category))
     .filter((p) => p.id !== product.id)
     .slice(0, 4);
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(productJsonLd).replace(/</g, "\\u003c"),
+        }}
+      />
       <nav className="flex flex-wrap items-center gap-x-1 gap-y-1 text-xs text-slate-500">
         <Link href="/" className="hover:text-[#E60012]">
           Início

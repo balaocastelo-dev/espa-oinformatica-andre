@@ -6,3 +6,7 @@ out/
 *.tsbuildinfo
 next-env.d.ts
 *.log
+
+# banco de dados e fotos locais (em produção ficam no volume do servidor)
+.data/
+.env

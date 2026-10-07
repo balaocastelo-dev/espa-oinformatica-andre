@@ -1,3 +1,4 @@
+import { requireAdmin } from "@/lib/auth";
 import { NextRequest, NextResponse } from "next/server";
 import {
   mergeCompanySettings,
@@ -10,6 +11,8 @@ export async function GET() {
 }
 
 export async function PUT(request: NextRequest) {
+  const denied = requireAdmin(request);
+  if (denied) return denied;
   const current = await readCompanySettings();
   const body = await request.json();
   const settings = mergeCompanySettings(body, current);

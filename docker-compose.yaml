@@ -1,0 +1,18 @@
+# Usado pelo Coolify (Build Pack: Docker Compose) ou por `docker compose up -d`.
+# O volume "loja-dados" guarda o banco de dados e as fotos entre um deploy e outro.
+services:
+  loja:
+    build: .
+    restart: unless-stopped
+    environment:
+      # Senha do painel /admin (obrigatória; sem ela o painel fica bloqueado)
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?defina ADMIN_PASSWORD}
+      # Endereço público do site, ex.: https://espacodainformatica.com.br
+      SITE_URL: ${SITE_URL:-}
+    expose:
+      - "3000"
+    volumes:
+      - loja-dados:/app/storage
+
+volumes:
+  loja-dados:

@@ -1,3 +1,4 @@
+import { requireAdmin } from "@/lib/auth";
 import { NextRequest, NextResponse } from "next/server";
 import { readProducts, writeProducts } from "@/lib/store";
 import { normalizePrice, youtubeIdFromUrl } from "@/lib/format";
@@ -6,6 +7,8 @@ import type { Product } from "@/lib/format";
 type Params = { params: Promise<{ id: string }> };
 
 export async function PUT(request: NextRequest, props: Params) {
+  const denied = requireAdmin(request);
+  if (denied) return denied;
   const { id } = await props.params;
   const body = await request.json();
   const products = await readProducts();
@@ -100,6 +103,8 @@ export async function PUT(request: NextRequest, props: Params) {
 }
 
 export async function DELETE(_request: NextRequest, props: Params) {
+  const denied = requireAdmin(_request);
+  if (denied) return denied;
   const { id } = await props.params;
   const products = await readProducts();
   const filtered = products.filter((p) => p.id !== id && p.slug !== id);

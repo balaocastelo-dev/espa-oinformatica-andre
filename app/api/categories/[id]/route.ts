@@ -1,3 +1,4 @@
+import { requireAdmin } from "@/lib/auth";
 import { NextRequest, NextResponse } from "next/server";
 import {
   FALLBACK_CATEGORY,
@@ -11,6 +12,8 @@ import { slugify } from "@/lib/slug";
 type Params = { params: Promise<{ id: string }> };
 
 export async function PUT(request: NextRequest, props: Params) {
+  const denied = requireAdmin(request);
+  if (denied) return denied;
   const { id } = await props.params;
   const body = await request.json();
   const categories = await readCategories();
@@ -59,6 +62,8 @@ export async function PUT(request: NextRequest, props: Params) {
 }
 
 export async function DELETE(_request: NextRequest, props: Params) {
+  const denied = requireAdmin(_request);
+  if (denied) return denied;
   const { id } = await props.params;
   const categories = await readCategories();
   const category = categories.find((c) => c.id === id);
