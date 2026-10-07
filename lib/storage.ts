@@ -70,6 +70,14 @@ function createBlobBackend(): Backend {
         });
       } catch (error) {
         if (error instanceof BlobPreconditionFailedError) throw new ConflictError();
+        // Duas gravações ao mesmo tempo: o Blob recusa uma delas com
+        // "conflicting operation" (não é o erro de ETag acima).
+        if (
+          error instanceof Error &&
+          /conflict|precondition|already exists/i.test(error.message)
+        ) {
+          throw new ConflictError();
+        }
         if (!etag) {
           // Criação recusada: se o documento já existe, foi outra requisição
           // que o criou ao mesmo tempo -> tratar como conflito e tentar de novo.
@@ -224,7 +232,7 @@ export async function updateDoc<T, R = T>(
 ): Promise<R> {
   const b = await backend();
   let lastError: unknown;
-  for (let attempt = 0; attempt < 6; attempt++) {
+  for (let attempt = 0; attempt < 8; attempt++) {
     const current = await b.read<T>(key);
     const { value, result } = await mutate(current.value);
     try {
@@ -234,7 +242,9 @@ export async function updateDoc<T, R = T>(
     } catch (error) {
       if (!(error instanceof ConflictError)) throw error;
       lastError = error;
-      await new Promise((resolve) => setTimeout(resolve, 40 * (attempt + 1)));
+      // Espera crescente com variação aleatória para as tentativas não colidirem de novo.
+      const delay = 60 * (attempt + 1) + Math.floor(Math.random() * 120);
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
   throw lastError ?? new Error("Não foi possível gravar os dados");
