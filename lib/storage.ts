@@ -55,7 +55,10 @@ function createBlobBackend(): Backend {
       const result = await get(docPath(key), { access: "private", useCache: false });
       if (!result || result.statusCode !== 200) return { value: null, etag: null };
       const text = (await streamToBuffer(result.stream)).toString("utf8");
-      return { value: JSON.parse(text) as T, etag: result.blob.etag };
+      // Respostas comprimidas trazem o ETag "fraco" (W/"..."), que o Blob não
+      // aceita no ifMatch da gravação. O valor forte é o mesmo sem o prefixo.
+      const etag = result.blob.etag.replace(/^W\//, "");
+      return { value: JSON.parse(text) as T, etag };
     },
 
     async write(key: string, value: unknown, etag: string | null): Promise<void> {
