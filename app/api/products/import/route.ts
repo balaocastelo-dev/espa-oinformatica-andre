@@ -82,7 +82,7 @@ async function mapWithConcurrency<T, R>(
 
 async function ensureCategories(categoryNames: string[]): Promise<void> {
   if (!categoryNames.length) return;
-  const categories = await readCategories();
+  const categories = await readCategories({ fresh: true });
   const existing = new Set(categories.map((c) => c.name.toLowerCase()));
   const toAdd: Category[] = [];
   let order = categories.length
@@ -110,7 +110,7 @@ async function ensureCategories(categoryNames: string[]): Promise<void> {
 }
 
 export async function POST(request: NextRequest) {
-  const denied = requireAdmin(request);
+  const denied = await requireAdmin(request);
   if (denied) return denied;
   try {
     const body = await request.json().catch(() => null);
@@ -128,7 +128,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const products = await readProducts();
+    const products = await readProducts({ fresh: true });
     const existingKeys = new Set(
       products.map((p) => (p.product_url || "").trim().toLowerCase()).filter(Boolean)
     );

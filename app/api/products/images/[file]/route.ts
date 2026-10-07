@@ -19,7 +19,7 @@ export async function GET(
       "Content-Length": String(image.buffer.length),
       "X-Content-Type-Options": "nosniff",
       // O nome do arquivo é único por upload, então pode ficar em cache.
-      "Cache-Control": "public, max-age=31536000, immutable",
+      "Cache-Control": "public, max-age=31536000, s-maxage=31536000, immutable",
     },
   });
 }

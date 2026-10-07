@@ -89,6 +89,38 @@ function linesToArray(text: string): string[] {
     .filter(Boolean);
 }
 
+/**
+ * Reduz a foto no navegador antes de enviar (fotos de celular costumam ter
+ * vários MB; o servidor aceita no máximo ~4 MB por envio).
+ */
+async function shrinkImage(file: File, maxSide: number, keepPng = false): Promise<File> {
+  if (file.size < 700 * 1024 || !file.type.startsWith("image/")) return file;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return file;
+    const png = keepPng && file.type === "image/png";
+    if (!png) {
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, png ? "image/png" : "image/jpeg", 0.86)
+    );
+    if (!blob || blob.size >= file.size) return file;
+    const name = file.name.replace(/\.[^.]+$/, "") + (png ? ".png" : ".jpg");
+    return new File([blob], name, { type: blob.type });
+  } catch {
+    return file;
+  }
+}
+
 async function api<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     headers: { "Content-Type": "application/json" },
@@ -676,7 +708,7 @@ function ProductForm({
     setUploading(true);
     try {
       const formData = new FormData();
-      formData.append("image", file);
+      formData.append("image", await shrinkImage(file, 1600));
       const res = await fetch("/api/products/images/upload", {
         method: "POST",
         body: formData,
@@ -889,7 +921,7 @@ function ProductForm({
                   Arraste uma foto aqui ou clique para escolher
                 </p>
                 <p className="text-xs text-slate-500">
-                  PNG, JPG ou WEBP (até 10 MB)
+                  PNG, JPG ou WEBP (fotos grandes são reduzidas automaticamente)
                 </p>
                 <div className="flex flex-wrap justify-center gap-2 sm:justify-start">
                   <input
@@ -1266,7 +1298,7 @@ function CompanyPanel({
     setUploadingLogo(true);
     try {
       const body = new FormData();
-      body.append("logo", logoFile);
+      body.append("logo", await shrinkImage(logoFile, 800, true));
       const response = await fetch("/api/settings/logo", {
         method: "POST",
         body,
@@ -1384,7 +1416,7 @@ function CompanyPanel({
               onChange={(event) => selectLogo(event.target.files?.[0])}
               className="block w-full text-sm text-slate-500 file:mr-3 file:rounded-full file:border-0 file:bg-slate-900 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-slate-700"
             />
-            <p className="text-xs text-slate-500">PNG, JPG ou WEBP, até 5 MB. O logo será usado no Header e Footer.</p>
+            <p className="text-xs text-slate-500">PNG, JPG ou WEBP. O logo será usado no Header e Footer.</p>
             <button
               type="button"
               onClick={uploadLogo}

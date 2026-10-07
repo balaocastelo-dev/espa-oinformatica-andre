@@ -1,5 +1,7 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import type { Product } from "@/lib/format";
-import { getDb, getStorageInfo as dbStorageInfo, transaction } from "@/lib/db";
+import { getStorageInfo as storageInfo, readDoc, updateDoc } from "@/lib/storage";
 
 export interface Category {
   id: string;
@@ -18,61 +20,51 @@ const DEFAULT_CATEGORIES: Category[] = [
   { id: "outras-marcas", name: "Outras Marcas", slug: "outras-marcas", displayOrder: 5 },
 ];
 
-function readList<T>(table: "products" | "categories"): T[] {
-  const rows = getDb()
-    .prepare(`SELECT data FROM ${table} ORDER BY position ASC`)
-    .all() as { data: string }[];
-  const list: T[] = [];
-  for (const row of rows) {
+/**
+ * Catálogo inicial (data/*.json): vale enquanto nada foi gravado no
+ * armazenamento. A partir da primeira alteração pelo painel, só o
+ * armazenamento é usado.
+ */
+const seedCache = new Map<string, unknown>();
+
+export function readSeed<T>(file: string, fallback: T): T {
+  if (!seedCache.has(file)) {
     try {
-      list.push(JSON.parse(row.data) as T);
+      const raw = readFileSync(path.join(process.cwd(), "data", file), "utf8");
+      seedCache.set(file, JSON.parse(raw));
     } catch {
-      /* ignora linha corrompida */
+      seedCache.set(file, fallback);
     }
   }
-  return list;
+  return structuredClone(seedCache.get(file)) as T;
 }
 
-function writeList<T extends { id: string }>(
-  table: "products" | "categories",
-  items: T[]
-): boolean {
-  try {
-    transaction((db) => {
-      db.exec(`DELETE FROM ${table}`);
-      const insert = db.prepare(
-        `INSERT OR REPLACE INTO ${table} (id, position, data) VALUES (?, ?, ?)`
-      );
-      items.forEach((item, index) => {
-        insert.run(item.id, index, JSON.stringify(item));
-      });
-    });
-    return dbStorageInfo().persistent;
-  } catch (error) {
-    console.error(`[store] falha ao gravar ${table}:`, error);
-    throw error;
-  }
-}
+export type ReadOptions = { fresh?: boolean };
 
-export async function readProducts(): Promise<Product[]> {
-  return readList<Product>("products");
+export async function readProducts(options: ReadOptions = {}): Promise<Product[]> {
+  const doc = await readDoc<Product[]>("products", options);
+  if (Array.isArray(doc.value)) return structuredClone(doc.value);
+  return readSeed<Product[]>("products.json", []);
 }
 
 export async function writeProducts(products: Product[]): Promise<boolean> {
-  return writeList("products", products);
+  await updateDoc<Product[], null>("products", () => ({ value: products, result: null }));
+  return (await storageInfo()).persistent;
 }
 
-export async function readCategories(): Promise<Category[]> {
-  const data = readList<Category>("categories");
+export async function readCategories(options: ReadOptions = {}): Promise<Category[]> {
+  const doc = await readDoc<Category[]>("categories", options);
+  const data = Array.isArray(doc.value)
+    ? structuredClone(doc.value)
+    : readSeed<Category[]>("categories.json", []);
   if (data.length === 0) return DEFAULT_CATEGORIES.map((c) => ({ ...c }));
   return data;
 }
 
 export async function writeCategories(categories: Category[]): Promise<boolean> {
-  return writeList("categories", categories);
-}
-
-export function getStorageInfo(): { writable: boolean | null; dir: string } {
-  const info = dbStorageInfo();
-  return { writable: info.persistent, dir: info.dir };
+  await updateDoc<Category[], null>("categories", () => ({
+    value: categories,
+    result: null,
+  }));
+  return (await storageInfo()).persistent;
 }

@@ -8,9 +8,9 @@ export const dynamic = "force-dynamic";
 
 // Lista de pedidos: somente para o painel administrativo.
 export async function GET(request: NextRequest) {
-  const denied = requireAdmin(request);
+  const denied = await requireAdmin(request);
   if (denied) return denied;
-  return NextResponse.json(listOrders());
+  return NextResponse.json(await listOrders());
 }
 
 // Criação de pedido: pública (é o cliente finalizando o carrinho).
@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const order = await createOrder(body);
-    const company = await readCompanySettings();
+    const company = await readCompanySettings({ fresh: true });
     const message = orderWhatsAppMessage(order);
     return NextResponse.json(
       {

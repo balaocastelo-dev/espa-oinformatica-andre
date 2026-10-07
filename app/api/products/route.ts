@@ -12,13 +12,13 @@ import { normalizePrice, youtubeIdFromUrl } from "@/lib/format";
 import type { Product } from "@/lib/format";
 
 export async function GET() {
-  const products = await readProducts();
+  const products = await readProducts({ fresh: true });
   return NextResponse.json(products);
 }
 
 async function ensureCategory(categoryName: string): Promise<void> {
   if (!categoryName) return;
-  const categories = await readCategories();
+  const categories = await readCategories({ fresh: true });
   if (categories.some((c) => c.name.toLowerCase() === categoryName.toLowerCase())) return;
   const order = categories.length
     ? Math.max(...categories.map((c) => c.displayOrder ?? 0)) + 1
@@ -34,7 +34,7 @@ async function ensureCategory(categoryName: string): Promise<void> {
 }
 
 export async function POST(request: NextRequest) {
-  const denied = requireAdmin(request);
+  const denied = await requireAdmin(request);
   if (denied) return denied;
   const body = await request.json();
   const name = String(body.name ?? "").trim();
@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
   const product_url_raw = String(body.product_url ?? "").trim();
   const product_url = product_url_raw || undefined;
 
-  const products = await readProducts();
+  const products = await readProducts({ fresh: true });
 
   if (product_url) {
     const duplicate = products.find(

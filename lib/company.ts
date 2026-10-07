@@ -1,4 +1,5 @@
-import { getStorageInfo, kvGet, kvSet } from "@/lib/db";
+import { getStorageInfo, readDoc, writeDoc } from "@/lib/storage";
+import { readSeed } from "@/lib/store";
 import { SITE_CONFIG } from "@/lib/config";
 
 export type CompanyStat = {
@@ -193,17 +194,16 @@ export function mergeCompanySettings(
   return next;
 }
 
-export async function readCompanySettings(): Promise<CompanySettings> {
-  const raw = kvGet("company");
+export async function readCompanySettings(
+  options: { fresh?: boolean } = {}
+): Promise<CompanySettings> {
+  const doc = await readDoc<unknown>("company", options);
+  const raw = doc.value ?? readSeed<unknown>("company.json", null);
   if (!raw) return DEFAULT_COMPANY_SETTINGS;
-  try {
-    return mergeCompanySettings(JSON.parse(raw));
-  } catch {
-    return DEFAULT_COMPANY_SETTINGS;
-  }
+  return mergeCompanySettings(raw);
 }
 
 export async function writeCompanySettings(settings: CompanySettings): Promise<boolean> {
-  kvSet("company", JSON.stringify(settings));
-  return getStorageInfo().persistent;
+  await writeDoc("company", settings);
+  return (await getStorageInfo()).persistent;
 }

@@ -7,13 +7,13 @@ import {
 } from "@/lib/company";
 
 export async function GET() {
-  return NextResponse.json(await readCompanySettings());
+  return NextResponse.json(await readCompanySettings({ fresh: true }));
 }
 
 export async function PUT(request: NextRequest) {
-  const denied = requireAdmin(request);
+  const denied = await requireAdmin(request);
   if (denied) return denied;
-  const current = await readCompanySettings();
+  const current = await readCompanySettings({ fresh: true });
   const body = await request.json();
   const settings = mergeCompanySettings(body, current);
   const saved = await writeCompanySettings(settings);

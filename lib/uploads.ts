@@ -1,21 +1,13 @@
-import { promises as fs } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { getUploadsDir } from "@/lib/db";
+import { readFile, saveFile } from "@/lib/storage";
 
-/** Fotos enviadas pelo painel ficam no volume persistente (DATA_DIR/uploads). */
+/** Fotos enviadas pelo painel ficam no armazenamento permanente (lib/storage). */
 
 const MIME_EXTENSIONS: Record<string, string> = {
   "image/png": "png",
   "image/jpeg": "jpg",
   "image/webp": "webp",
-};
-
-const CONTENT_TYPES: Record<string, string> = {
-  png: "image/png",
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  webp: "image/webp",
 };
 
 function extensionFromName(name: string): string | undefined {
@@ -63,10 +55,8 @@ export async function saveImage(
 
   const id = randomUUID().replace(/-/g, "").slice(0, 16);
   const fileName = `${options.prefix}-${id}.${extension}`;
-  await fs.writeFile(
-    path.join(/* turbopackIgnore: true */ getUploadsDir(), fileName),
-    bytes
-  );
+  const contentType = extension === "jpg" ? "image/jpeg" : `image/${extension}`;
+  await saveFile(fileName, bytes, contentType);
   return { url: `/api/products/images/${fileName}`, fileName, bytes: bytes.length };
 }
 
@@ -84,13 +74,5 @@ export async function readImage(
 ): Promise<{ buffer: Buffer; contentType: string } | null> {
   const safe = sanitizeImageName(file);
   if (!safe) return null;
-  const extension = safe.split(".").pop()!.toLowerCase();
-  try {
-    const filePath = path.join(/* turbopackIgnore: true */ getUploadsDir(), safe);
-    const buffer = await fs.readFile(/* turbopackIgnore: true */ filePath);
-    return { buffer, contentType: CONTENT_TYPES[extension] ?? "application/octet-stream" };
-  } catch {
-    /* arquivo não existe */
-  }
-  return null;
+  return readFile(safe);
 }

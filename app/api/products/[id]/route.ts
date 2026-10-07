@@ -7,11 +7,11 @@ import type { Product } from "@/lib/format";
 type Params = { params: Promise<{ id: string }> };
 
 export async function PUT(request: NextRequest, props: Params) {
-  const denied = requireAdmin(request);
+  const denied = await requireAdmin(request);
   if (denied) return denied;
   const { id } = await props.params;
   const body = await request.json();
-  const products = await readProducts();
+  const products = await readProducts({ fresh: true });
   const index = products.findIndex((p) => p.id === id || p.slug === id);
   if (index === -1) {
     return NextResponse.json({ error: "Produto não encontrado" }, { status: 404 });
@@ -103,10 +103,10 @@ export async function PUT(request: NextRequest, props: Params) {
 }
 
 export async function DELETE(_request: NextRequest, props: Params) {
-  const denied = requireAdmin(_request);
+  const denied = await requireAdmin(_request);
   if (denied) return denied;
   const { id } = await props.params;
-  const products = await readProducts();
+  const products = await readProducts({ fresh: true });
   const filtered = products.filter((p) => p.id !== id && p.slug !== id);
   if (filtered.length === products.length) {
     return NextResponse.json({ error: "Produto não encontrado" }, { status: 404 });

@@ -6,7 +6,7 @@ import { UploadError, saveImage } from "@/lib/uploads";
 export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
-  const denied = requireAdmin(request);
+  const denied = await requireAdmin(request);
   if (denied) return denied;
 
   let file: File | null = null;
@@ -26,8 +26,8 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const saved = await saveImage(file, { prefix: "logo", maxBytes: 5 * 1024 * 1024 });
-    const current = await readCompanySettings();
+    const saved = await saveImage(file, { prefix: "logo", maxBytes: 4 * 1024 * 1024 });
+    const current = await readCompanySettings({ fresh: true });
     const settings = { ...current, logoPath: saved.url };
     const persisted = await writeCompanySettings(settings);
     return NextResponse.json({

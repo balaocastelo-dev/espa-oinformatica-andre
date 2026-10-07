@@ -1,4 +1,4 @@
-import { getDb } from "@/lib/db";
+import { readDoc, updateDoc } from "@/lib/storage";
 import { formatPrice, parsePriceToNumber } from "@/lib/format";
 import { readProducts } from "@/lib/store";
 
@@ -12,39 +12,31 @@ import {
 export { ORDER_STATUSES, ORDER_STATUS_LABELS } from "@/lib/order-types";
 export type { Order, OrderItem, OrderStatus } from "@/lib/order-types";
 
-type OrderRow = {
-  id: number;
-  created_at: string;
-  updated_at: string;
-  status: string;
-  customer_name: string;
-  customer_phone: string;
-  note: string;
-  items: string;
-  total_cents: number;
-};
+type StoredOrder = Omit<Order, "total">;
 
-function toOrder(row: OrderRow): Order {
-  let items: OrderItem[] = [];
-  try {
-    items = JSON.parse(row.items) as OrderItem[];
-  } catch {
-    items = [];
-  }
-  const status = (ORDER_STATUSES as readonly string[]).includes(row.status)
-    ? (row.status as OrderStatus)
+/** Todos os pedidos ficam em um documento; "seq" é o último número usado. */
+type OrdersDoc = { seq: number; orders: StoredOrder[] };
+
+const FIRST_ORDER_NUMBER = 1001;
+
+function emptyDoc(): OrdersDoc {
+  return { seq: FIRST_ORDER_NUMBER - 1, orders: [] };
+}
+
+function normalizeDoc(doc: OrdersDoc | null): OrdersDoc {
+  if (!doc || !Array.isArray(doc.orders)) return emptyDoc();
+  return { seq: Number(doc.seq) || FIRST_ORDER_NUMBER - 1, orders: doc.orders };
+}
+
+function toOrder(stored: StoredOrder): Order {
+  const status = (ORDER_STATUSES as readonly string[]).includes(stored.status)
+    ? stored.status
     : "novo";
   return {
-    id: row.id,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    ...stored,
     status,
-    customerName: row.customer_name,
-    customerPhone: row.customer_phone,
-    note: row.note,
-    items,
-    totalCents: row.total_cents,
-    total: formatPrice(row.total_cents / 100),
+    items: Array.isArray(stored.items) ? stored.items : [],
+    total: formatPrice(stored.totalCents / 100),
   };
 }
 
@@ -84,7 +76,7 @@ export async function createOrder(input: NewOrderInput): Promise<Order> {
   if (rawItems.length === 0) throw new OrderError("Seu carrinho está vazio");
   if (rawItems.length > 50) throw new OrderError("Pedido com itens demais");
 
-  const catalog = await readProducts();
+  const catalog = await readProducts({ fresh: true });
   const byId = new Map(catalog.map((p) => [p.id, p]));
 
   const quantities = new Map<string, number>();
@@ -123,43 +115,63 @@ export async function createOrder(input: NewOrderInput): Promise<Order> {
   const totalCents = items.reduce((sum, item) => sum + item.unitCents * item.quantity, 0);
   const now = new Date().toISOString();
 
-  const result = getDb()
-    .prepare(
-      `INSERT INTO orders
-         (created_at, updated_at, status, customer_name, customer_phone, note, items, total_cents)
-       VALUES (?, ?, 'novo', ?, ?, ?, ?, ?)`
-    )
-    .run(now, now, customerName, customerPhone, note, JSON.stringify(items), totalCents);
+  const created = await updateDoc<OrdersDoc, StoredOrder>("orders", (current) => {
+    const doc = normalizeDoc(current);
+    const order: StoredOrder = {
+      id: doc.seq + 1,
+      createdAt: now,
+      updatedAt: now,
+      status: "novo",
+      customerName,
+      customerPhone,
+      note,
+      items,
+      totalCents,
+    };
+    return {
+      value: { seq: order.id, orders: [...doc.orders, order] },
+      result: order,
+    };
+  });
 
-  const order = getOrder(Number(result.lastInsertRowid));
-  if (!order) throw new Error("Falha ao gravar o pedido");
-  return order;
+  return toOrder(created);
 }
 
-export function getOrder(id: number): Order | null {
-  const row = getDb().prepare("SELECT * FROM orders WHERE id = ?").get(id) as
-    | OrderRow
-    | undefined;
-  return row ? toOrder(row) : null;
+export async function listOrders(limit = 500): Promise<Order[]> {
+  const doc = normalizeDoc((await readDoc<OrdersDoc>("orders", { fresh: true })).value);
+  return doc.orders
+    .slice()
+    .sort((a, b) => b.id - a.id)
+    .slice(0, limit)
+    .map(toOrder);
 }
 
-export function listOrders(limit = 500): Order[] {
-  const rows = getDb()
-    .prepare("SELECT * FROM orders ORDER BY id DESC LIMIT ?")
-    .all(limit) as OrderRow[];
-  return rows.map(toOrder);
+export async function updateOrderStatus(
+  id: number,
+  status: OrderStatus
+): Promise<Order | null> {
+  const updated = await updateDoc<OrdersDoc, StoredOrder | null>("orders", (current) => {
+    const doc = normalizeDoc(current);
+    let found: StoredOrder | null = null;
+    const orders = doc.orders.map((order) => {
+      if (order.id !== id) return order;
+      found = { ...order, status, updatedAt: new Date().toISOString() };
+      return found;
+    });
+    return { value: { seq: doc.seq, orders }, result: found };
+  });
+  return updated ? toOrder(updated) : null;
 }
 
-export function updateOrderStatus(id: number, status: OrderStatus): Order | null {
-  getDb()
-    .prepare("UPDATE orders SET status = ?, updated_at = ? WHERE id = ?")
-    .run(status, new Date().toISOString(), id);
-  return getOrder(id);
-}
-
-export function deleteOrder(id: number): boolean {
-  const result = getDb().prepare("DELETE FROM orders WHERE id = ?").run(id);
-  return Number(result.changes) > 0;
+export async function deleteOrder(id: number): Promise<boolean> {
+  return updateDoc<OrdersDoc, boolean>("orders", (current) => {
+    const doc = normalizeDoc(current);
+    const orders = doc.orders.filter((order) => order.id !== id);
+    return {
+      value: { seq: doc.seq, orders },
+      result: orders.length !== doc.orders.length,
+    };
+  });
 }
 
 /** Texto do pedido que vai pronto para o WhatsApp da loja. */

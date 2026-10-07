@@ -1,20 +1,33 @@
 # Espaço da Informática — loja virtual
 
 Catálogo + carrinho + pedidos via WhatsApp, com painel administrativo.
-Next.js 16, banco de dados SQLite embutido (sem serviços externos).
+Next.js 16. Na Vercel usa o Vercel Blob; em servidor próprio, SQLite embutido.
 
-## O que fica guardado
+## Onde os dados ficam
 
-Tudo fica em uma única pasta (`DATA_DIR`, no Docker `/app/storage`):
+O site escolhe o armazenamento sozinho:
 
-- `loja.db` — produtos, categorias, dados da empresa e pedidos
-- `uploads/` — fotos e logo enviados pelo painel
+| Onde roda                  | Armazenamento                                   |
+| -------------------------- | ----------------------------------------------- |
+| **Vercel** (produção)      | Vercel Blob conectado ao projeto                |
+| Servidor próprio / Docker  | SQLite + pasta `uploads/` em `DATA_DIR`         |
+| Desenvolvimento local      | SQLite em `./.data`                             |
 
-Essa pasta precisa ser um **volume persistente**. O `docker-compose.yaml` já cria
-o volume `loja-dados` para isso. Na primeira vez que o site sobe, o catálogo de
-`data/*.json` é carregado no banco; depois disso, só o banco é usado.
+Ficam guardados: produtos, categorias, dados da empresa, pedidos e as fotos
+enviadas pelo painel. Enquanto nada foi alterado pelo painel, o catálogo vem de
+`data/*.json`.
 
-**Backup:** copie a pasta do volume (ou só o arquivo `loja.db` + `uploads/`).
+Verificação: `/api/health` deve responder `{"ok":true,"storage":"blob","persistent":true}`
+na Vercel. Se aparecer `"persistent":false`, o Blob store não está conectado e os
+dados somem a cada reinício.
+
+## Publicar na Vercel
+
+1. Projeto → **Storage** → **Create Database** → **Blob** → conectar ao projeto
+   (todos os ambientes). Isso cria as variáveis do Blob automaticamente.
+2. Projeto → **Settings → Environment Variables** → criar `ADMIN_PASSWORD`
+   (senha do `/admin`) e, opcionalmente, `SITE_URL`.
+3. **Redeploy** (variáveis novas só valem em um novo deploy).
 
 ## Variáveis de ambiente
 
@@ -22,18 +35,13 @@ o volume `loja-dados` para isso. Na primeira vez que o site sobe, o catálogo de
 | ---------------- | ----------- | ------------------------------------------------------------ |
 | `ADMIN_PASSWORD` | sim         | Senha do `/admin`. Sem ela o painel fica bloqueado.          |
 | `SITE_URL`       | recomendado | Endereço público (sitemap, links). Ex.: `https://seusite.com` |
-| `DATA_DIR`       | não         | Pasta dos dados. Docker: `/app/storage`. Local: `./.data`.   |
+| `DATA_DIR`       | não         | Só fora da Vercel: pasta do SQLite e das fotos.              |
 
-## Publicar no Coolify
+## Publicar em servidor próprio (Docker / Coolify)
 
-1. **New Resource → Public/Private Repository** e escolha este repositório (branch `main`).
-2. **Build Pack: Docker Compose** (arquivo `docker-compose.yaml`).
-3. Em **Environment Variables**, crie `ADMIN_PASSWORD` (e `SITE_URL`).
-4. No serviço `loja`, informe o domínio com a porta: `https://seudominio.com:3000`.
-5. **Deploy**. O volume `loja-dados` é criado sozinho e mantido entre os deploys.
-
-Verificação: `https://seudominio.com/api/health` deve responder
-`{"ok":true,"persistent":true}`.
+`docker-compose.yaml` já cria o volume `loja-dados` em `/app/storage`.
+No Coolify: Build Pack **Docker Compose**, definir `ADMIN_PASSWORD` e o domínio
+do serviço `loja` com a porta 3000.
 
 ## Rodar localmente
 

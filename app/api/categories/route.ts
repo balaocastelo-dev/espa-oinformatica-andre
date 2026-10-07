@@ -5,12 +5,12 @@ import { slugify } from "@/lib/slug";
 import type { Category } from "@/lib/store";
 
 export async function GET() {
-  const categories = await readCategories();
+  const categories = await readCategories({ fresh: true });
   return NextResponse.json(categories);
 }
 
 export async function POST(request: NextRequest) {
-  const denied = requireAdmin(request);
+  const denied = await requireAdmin(request);
   if (denied) return denied;
   const body = await request.json();
   const name = String(body.name ?? "").trim();
@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Nome da categoria é obrigatório" }, { status: 400 });
   }
 
-  const categories = await readCategories();
+  const categories = await readCategories({ fresh: true });
   if (categories.some((c) => c.name.toLowerCase() === name.toLowerCase())) {
     return NextResponse.json({ error: "Já existe uma categoria com esse nome" }, { status: 409 });
   }

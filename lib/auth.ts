@@ -1,7 +1,7 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
-import { kvGet, kvSet } from "@/lib/db";
+import { readDoc, updateDoc } from "@/lib/storage";
 
 /**
  * Login do painel administrativo.
@@ -13,19 +13,29 @@ import { kvGet, kvSet } from "@/lib/db";
 export const SESSION_COOKIE = "espaco_admin";
 const SESSION_DAYS = 14;
 
-function secret(): string {
+let cachedSecret: string | null = null;
+
+/** Chave que assina o cookie de sessão: AUTH_SECRET ou uma gerada e guardada. */
+async function secret(): Promise<string> {
   const fromEnv = process.env.AUTH_SECRET?.trim();
   if (fromEnv) return fromEnv;
-  let stored = kvGet("auth_secret");
-  if (!stored) {
-    stored = randomBytes(32).toString("hex");
-    kvSet("auth_secret", stored);
+  if (cachedSecret) return cachedSecret;
+  const existing = (await readDoc<{ secret?: string }>("auth", { fresh: true })).value;
+  if (existing?.secret) {
+    cachedSecret = existing.secret;
+    return cachedSecret;
   }
-  return stored;
+  cachedSecret = await updateDoc<{ secret: string }, string>("auth", (current) => {
+    const value = current?.secret ? current : { secret: randomBytes(32).toString("hex") };
+    return { value, result: value.secret };
+  });
+  return cachedSecret;
 }
 
-function sign(payload: string): string {
-  return createHmac("sha256", secret()).update(payload).digest("base64url");
+async function sign(payload: string): Promise<string> {
+  // A senha entra na assinatura: trocar a senha encerra todas as sessões.
+  const key = `${await secret()}:${process.env.ADMIN_PASSWORD?.trim() ?? ""}`;
+  return createHmac("sha256", key).update(payload).digest("base64url");
 }
 
 function safeEqual(a: string, b: string): boolean {
@@ -44,20 +54,22 @@ export function checkPassword(candidate: string): boolean {
   return safeEqual(candidate, expected);
 }
 
-export function createSessionToken(): { token: string; maxAge: number } {
+export async function createSessionToken(): Promise<{ token: string; maxAge: number }> {
   const maxAge = SESSION_DAYS * 24 * 60 * 60;
   const expires = Math.floor(Date.now() / 1000) + maxAge;
   const payload = `v1.${expires}.${randomBytes(8).toString("hex")}`;
-  return { token: `${payload}.${sign(payload)}`, maxAge };
+  return { token: `${payload}.${await sign(payload)}`, maxAge };
 }
 
-export function verifySessionToken(token: string | undefined | null): boolean {
+export async function verifySessionToken(
+  token: string | undefined | null
+): Promise<boolean> {
   if (!token || !isAdminConfigured()) return false;
   const index = token.lastIndexOf(".");
   if (index <= 0) return false;
   const payload = token.slice(0, index);
   const signature = token.slice(index + 1);
-  if (!safeEqual(signature, sign(payload))) return false;
+  if (!safeEqual(signature, await sign(payload))) return false;
   const [version, expires] = payload.split(".");
   if (version !== "v1") return false;
   const exp = Number(expires);
@@ -71,8 +83,8 @@ export async function isAdminSession(): Promise<boolean> {
 }
 
 /** Para rotas de API: devolve uma resposta 401 quando não há login válido. */
-export function requireAdmin(request: NextRequest): NextResponse | null {
-  if (verifySessionToken(request.cookies.get(SESSION_COOKIE)?.value)) return null;
+export async function requireAdmin(request: NextRequest): Promise<NextResponse | null> {
+  if (await verifySessionToken(request.cookies.get(SESSION_COOKIE)?.value)) return null;
   return NextResponse.json(
     { error: "Acesso restrito. Faça login no painel administrativo." },
     { status: 401 }

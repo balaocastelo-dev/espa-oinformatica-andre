@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Senha incorreta" }, { status: 401 });
   }
 
-  const { token, maxAge } = createSessionToken();
+  const { token, maxAge } = await createSessionToken();
   const response = NextResponse.json({ ok: true });
   response.cookies.set(SESSION_COOKIE, token, sessionCookieOptions(request, maxAge));
   return response;

@@ -12,7 +12,7 @@ function parseId(raw: string): number | null {
 }
 
 export async function PATCH(request: NextRequest, props: Params) {
-  const denied = requireAdmin(request);
+  const denied = await requireAdmin(request);
   if (denied) return denied;
 
   const id = parseId((await props.params).id);
@@ -22,7 +22,7 @@ export async function PATCH(request: NextRequest, props: Params) {
     return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
   }
 
-  const order = updateOrderStatus(id, status as OrderStatus);
+  const order = await updateOrderStatus(id, status as OrderStatus);
   if (!order) {
     return NextResponse.json({ error: "Pedido não encontrado" }, { status: 404 });
   }
@@ -30,11 +30,11 @@ export async function PATCH(request: NextRequest, props: Params) {
 }
 
 export async function DELETE(request: NextRequest, props: Params) {
-  const denied = requireAdmin(request);
+  const denied = await requireAdmin(request);
   if (denied) return denied;
 
   const id = parseId((await props.params).id);
-  if (!id || !deleteOrder(id)) {
+  if (!id || !await deleteOrder(id)) {
     return NextResponse.json({ error: "Pedido não encontrado" }, { status: 404 });
   }
   return NextResponse.json({ success: true });

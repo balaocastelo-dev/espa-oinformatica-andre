@@ -5,7 +5,7 @@ import { UploadError, saveImage } from "@/lib/uploads";
 export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
-  const denied = requireAdmin(request);
+  const denied = await requireAdmin(request);
   if (denied) return denied;
 
   let file: File | null = null;
@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const saved = await saveImage(file, { prefix: "product", maxBytes: 10 * 1024 * 1024 });
+    const saved = await saveImage(file, { prefix: "product", maxBytes: 4 * 1024 * 1024 });
     return NextResponse.json({ ...saved, storage: "disk" });
   } catch (error) {
     if (error instanceof UploadError) {

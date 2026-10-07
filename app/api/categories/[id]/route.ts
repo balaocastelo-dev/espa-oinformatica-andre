@@ -12,11 +12,11 @@ import { slugify } from "@/lib/slug";
 type Params = { params: Promise<{ id: string }> };
 
 export async function PUT(request: NextRequest, props: Params) {
-  const denied = requireAdmin(request);
+  const denied = await requireAdmin(request);
   if (denied) return denied;
   const { id } = await props.params;
   const body = await request.json();
-  const categories = await readCategories();
+  const categories = await readCategories({ fresh: true });
   const category = categories.find((c) => c.id === id);
   if (!category) {
     return NextResponse.json({ error: "Categoria não encontrada" }, { status: 404 });
@@ -41,7 +41,7 @@ export async function PUT(request: NextRequest, props: Params) {
 
   let savedProducts = true;
   if (oldName !== name) {
-    const products = await readProducts();
+    const products = await readProducts({ fresh: true });
     let changed = false;
     for (const product of products) {
       if (product.category === oldName) {
@@ -62,10 +62,10 @@ export async function PUT(request: NextRequest, props: Params) {
 }
 
 export async function DELETE(_request: NextRequest, props: Params) {
-  const denied = requireAdmin(_request);
+  const denied = await requireAdmin(_request);
   if (denied) return denied;
   const { id } = await props.params;
-  const categories = await readCategories();
+  const categories = await readCategories({ fresh: true });
   const category = categories.find((c) => c.id === id);
   if (!category) {
     return NextResponse.json({ error: "Categoria não encontrada" }, { status: 404 });
@@ -73,7 +73,7 @@ export async function DELETE(_request: NextRequest, props: Params) {
 
   const savedCats = await writeCategories(categories.filter((c) => c.id !== id));
 
-  const products = await readProducts();
+  const products = await readProducts({ fresh: true });
   let changed = false;
   for (const product of products) {
     if (product.category === category.name) {
